@@ -427,103 +427,162 @@ function Show-CheckboxMenu {
     $sevFilters = @($null, 'High', 'Medium', 'Info')   # phím F xoay vòng
     $filterIdx = 0
     $cursor = 0
-    $winH = [Math]::Max(5, [Console]::WindowHeight - 8)
     $offset = 0
+    $winH = [Math]::Max(5, [Console]::WindowHeight - 10)
+    $width = [Console]::WindowWidth - 1
+    $sevColWidth = if ($hasSev) { 7 } else { 0 }   # 'Medium' + 1 space
+
+    # ---- Các hàm vẽ cục bộ: KHÔNG BAO GIỜ xuống dòng -> không bao giờ cuộn màn hình ----
+    function Get-PickerView {
+        $filter = $sevFilters[$filterIdx]
+        $v = [System.Collections.Generic.List[int]]::new()
+        for ($j = 0; $j -lt $count; $j++) {
+            if ($ignoredFlag[$j]) { continue }
+            if ($hasSev -and $filter -and $Severities[$j] -ne $filter) { continue }
+            $v.Add($j)
+        }
+        return , $v
+    }
+    function Draw-PickerRow {
+        param([int]$RowVisual)
+        if ($RowVisual -lt 0 -or $RowVisual -ge $winH) { return }
+        [Console]::SetCursorPosition(0, $top + $RowVisual)
+        $vIdx = $offset + $RowVisual
+        if ($vIdx -ge $view.Count) {
+            Write-Host (' ' * $width) -NoNewline
+            return
+        }
+        $idx = $view[$vIdx]
+        $mark = if ($checked[$idx]) { '[x]' } else { '[ ]' }
+        $ptr = if ($vIdx -eq $cursor) { '>' } else { ' ' }
+        $stateColor = if ($vIdx -eq $cursor) { [ConsoleColor]::White } elseif ($checked[$idx]) { [ConsoleColor]::Green } else { [ConsoleColor]::Gray }
+        $markColor = if ($checked[$idx]) { [ConsoleColor]::Green } else { $stateColor }
+        $labelMax = $width - 7 - $sevColWidth
+        $label = $Labels[$idx]
+        if ($label.Length -gt $labelMax) { $label = $label.Substring(0, $labelMax - 1) + '…' }
+        Write-C (' {0} ' -f $ptr) -Color Cyan -NoNewline
+        Write-C $mark -Color $markColor -NoNewline
+        Write-Host ' ' -NoNewline
+        if ($hasSev) {
+            Write-C ('{0,-6} ' -f $Severities[$idx]) -Color (Get-SeverityColor -Severity $Severities[$idx]) -NoNewline
+        }
+        Write-C $label -Color $stateColor -NoNewline
+        $used = 7 + $sevColWidth + $label.Length
+        if ($used -lt $width) { Write-Host (' ' * ($width - $used)) -NoNewline }
+    }
+    function Draw-PickerStatus {
+        [Console]::SetCursorPosition(0, $top + $winH)
+        $selCount = @($checked | Where-Object { $_ }).Count
+        $ignCount = @($ignoredFlag | Where-Object { $_ }).Count
+        $filter = $sevFilters[$filterIdx]
+        $filterText = if ($filter) { " | F:$filter" } else { '' }
+        $ignText = if ($ignCount -gt 0) { " | I:$ignCount" } else { '' }
+        $status = ' {0}/{1} | √ {2}{3}{4}' -f ([Math]::Min($cursor + 1, $view.Count)), $view.Count, $selCount, $filterText, $ignText
+        if ($status.Length -gt $width) { $status = $status.Substring(0, $width) }
+        Write-C ($status.PadRight($width)) -Color Cyan -NoNewline
+    }
+    function Draw-PickerAll {
+        for ($r = 0; $r -lt $winH; $r++) { Draw-PickerRow -RowVisual $r }
+        Draw-PickerStatus
+    }
 
     Write-Host ''
     Write-Host $Title -ForegroundColor Cyan
     Write-Host $Help -ForegroundColor DarkGray
-    $top = [Console]::CursorTop
-    $width = [Console]::WindowWidth - 1
+    # Dành sẵn vùng vẽ cố định (cuộn buffer đúng MỘT lần tại đây) - từ đó về sau
+    # mọi thao tác chỉ vẽ đè tại chỗ, màn hình đứng yên tuyệt đối
+    for ($r = 0; $r -le $winH; $r++) { Write-Host '' }
+    $top = [Console]::CursorTop - ($winH + 1)
 
-    while ($true) {
-        # Xây "view": danh sách index gốc sau khi áp bộ lọc mức độ + loại mục đã ignore
-        $filter = $sevFilters[$filterIdx]
-        $view = [System.Collections.Generic.List[int]]::new()
-        for ($j = 0; $j -lt $count; $j++) {
-            if ($ignoredFlag[$j]) { continue }
-            if ($hasSev -and $filter -and $Severities[$j] -ne $filter) { continue }
-            $view.Add($j)
-        }
-        if ($view.Count -eq 0 -and $filter) { $filterIdx = 0; continue }
-        if ($cursor -ge $view.Count) { $cursor = [Math]::Max(0, $view.Count - 1) }
-        if ($cursor -lt $offset) { $offset = $cursor }
-        if ($cursor -ge $offset + $winH) { $offset = $cursor - $winH + 1 }
-        if ($offset -gt [Math]::Max(0, $view.Count - $winH)) { $offset = [Math]::Max(0, $view.Count - $winH) }
+    $view = Get-PickerView
+    $prevCursorVisible = $true
+    try { $prevCursorVisible = [Console]::CursorVisible } catch {}
+    try {
+        try { [Console]::CursorVisible = $false } catch {}   # ẩn con trỏ nháy khi tương tác
+        Draw-PickerAll
 
-        [Console]::SetCursorPosition(0, $top)
-        $sevColWidth = if ($hasSev) { 7 } else { 0 }   # 'Medium' + 1 space
-        for ($row = 0; $row -lt $winH; $row++) {
-            $vIdx = $offset + $row
-            if ($vIdx -lt $view.Count) {
-                $idx = $view[$vIdx]
-                $mark = if ($checked[$idx]) { '[x]' } else { '[ ]' }
-                $ptr = if ($vIdx -eq $cursor) { '>' } else { ' ' }
-                $stateColor = if ($vIdx -eq $cursor) { [ConsoleColor]::White } elseif ($checked[$idx]) { [ConsoleColor]::Green } else { [ConsoleColor]::Gray }
-                $markColor = if ($checked[$idx]) { [ConsoleColor]::Green } else { $stateColor }
+        while ($true) {
+            $key = [Console]::ReadKey($true)
+            $oldCursor = $cursor
+            $needFull = $false
+            $rebuild = $false
+            $touchRow = $false
 
-                $labelMax = $width - 7 - $sevColWidth
-                $label = $Labels[$idx]
-                if ($label.Length -gt $labelMax) { $label = $label.Substring(0, $labelMax - 1) + '…' }
-
-                Write-C (' {0} ' -f $ptr) -Color Cyan -NoNewline
-                Write-C $mark -Color $markColor -NoNewline
-                Write-Host ' ' -NoNewline
-                if ($hasSev) {
-                    Write-C ('{0,-6} ' -f $Severities[$idx]) -Color (Get-SeverityColor -Severity $Severities[$idx]) -NoNewline
+            switch ($key.Key) {
+                'UpArrow'   { if ($cursor -gt 0) { $cursor-- } else { $cursor = [Math]::Max(0, $view.Count - 1) } }
+                'DownArrow' { if ($cursor -lt $view.Count - 1) { $cursor++ } else { $cursor = 0 } }
+                'PageUp'    { $cursor = [Math]::Max(0, $cursor - $winH) }
+                'PageDown'  { $cursor = [Math]::Min([Math]::Max(0, $view.Count - 1), $cursor + $winH) }
+                'Home'      { $cursor = 0 }
+                'End'       { $cursor = [Math]::Max(0, $view.Count - 1) }
+                'Spacebar'  {
+                    if ($view.Count -gt 0) {
+                        $orig = $view[$cursor]
+                        $checked[$orig] = -not $checked[$orig]
+                        $touchRow = $true
+                    }
                 }
-                Write-C $label -Color $stateColor -NoNewline
-                $used = 7 + $sevColWidth + $label.Length
-                if ($used -lt $width) { Write-Host (' ' * ($width - $used)) } else { Write-Host '' }
-            } else {
-                Write-Host (' ' * $width)
-            }
-        }
-        $selCount = @($checked | Where-Object { $_ }).Count
-        $ignCount = @($ignoredFlag | Where-Object { $_ }).Count
-        $filterText = if ($filter) { " | F:$filter" } else { '' }
-        $ignText = if ($ignCount -gt 0) { " | I:$ignCount" } else { '' }
-        $status = ' {0}/{1} | √ {2}{3}{4}' -f ([Math]::Min($cursor + 1, $view.Count)), $view.Count, $selCount, $filterText, $ignText
-        Write-Host ($status.PadRight($width)) -ForegroundColor Cyan
-
-        $key = [Console]::ReadKey($true)
-        switch ($key.Key) {
-            'UpArrow'   { if ($cursor -gt 0) { $cursor-- } else { $cursor = $view.Count - 1 } }
-            'DownArrow' { if ($cursor -lt $view.Count - 1) { $cursor++ } else { $cursor = 0 } }
-            'PageUp'    { $cursor = [Math]::Max(0, $cursor - $winH) }
-            'PageDown'  { $cursor = [Math]::Min($view.Count - 1, $cursor + $winH) }
-            'Home'      { $cursor = 0 }
-            'End'       { $cursor = $view.Count - 1 }
-            'Spacebar'  { if ($view.Count -gt 0) { $orig = $view[$cursor]; $checked[$orig] = -not $checked[$orig] } }
-            'A'         { foreach ($orig in $view) { $checked[$orig] = $true } }
-            'N'         { foreach ($orig in $view) { $checked[$orig] = $false } }
-            'F'         { if ($hasSev) { $filterIdx = ($filterIdx + 1) % $sevFilters.Count; $cursor = 0; $offset = 0 } }
-            'I'         {
-                if ($AllowIgnore -and $view.Count -gt 0) {
-                    $orig = $view[$cursor]
-                    $ignoredFlag[$orig] = $true
-                    $checked[$orig] = $false
+                'A'         { foreach ($orig in $view) { $checked[$orig] = $true }; $needFull = $true }
+                'N'         { foreach ($orig in $view) { $checked[$orig] = $false }; $needFull = $true }
+                'F'         { if ($hasSev) { $filterIdx = ($filterIdx + 1) % $sevFilters.Count; $cursor = 0; $offset = 0; $rebuild = $true } }
+                'I'         {
+                    if ($AllowIgnore -and $view.Count -gt 0) {
+                        $orig = $view[$cursor]
+                        $ignoredFlag[$orig] = $true
+                        $checked[$orig] = $false
+                        $rebuild = $true
+                    }
+                }
+                'Enter'     {
+                    $result = [System.Collections.Generic.List[int]]::new()
+                    $ign = [System.Collections.Generic.List[int]]::new()
+                    for ($j = 0; $j -lt $count; $j++) {
+                        if ($checked[$j]) { $result.Add($j) }
+                        if ($ignoredFlag[$j]) { $ign.Add($j) }
+                    }
+                    $script:pickerIgnored = $ign.ToArray()
+                    return $result.ToArray()
+                }
+                'Escape'    {
+                    $ign = [System.Collections.Generic.List[int]]::new()
+                    for ($j = 0; $j -lt $count; $j++) { if ($ignoredFlag[$j]) { $ign.Add($j) } }
+                    $script:pickerIgnored = $ign.ToArray()
+                    return @()
                 }
             }
-            'Enter'     {
-                $result = [System.Collections.Generic.List[int]]::new()
-                $ign = [System.Collections.Generic.List[int]]::new()
-                for ($j = 0; $j -lt $count; $j++) {
-                    if ($checked[$j]) { $result.Add($j) }
-                    if ($ignoredFlag[$j]) { $ign.Add($j) }
-                }
-                $script:pickerIgnored = $ign.ToArray()
-                Write-Host ''
-                return $result.ToArray()
+
+            if ($rebuild) {
+                $view = Get-PickerView
+                if ($view.Count -eq 0 -and $sevFilters[$filterIdx]) { $filterIdx = 0; $view = Get-PickerView }
+                if ($cursor -ge $view.Count) { $cursor = [Math]::Max(0, $view.Count - 1) }
+                $needFull = $true
             }
-            'Escape'    {
-                $ign = [System.Collections.Generic.List[int]]::new()
-                for ($j = 0; $j -lt $count; $j++) { if ($ignoredFlag[$j]) { $ign.Add($j) } }
-                $script:pickerIgnored = $ign.ToArray()
-                Write-Host ''
-                return @()
+            # Cuộn cửa sổ khi con trỏ chạm mép -> phải vẽ lại cả khung
+            if ($view.Count -gt 0) {
+                if ($cursor -lt $offset) { $offset = $cursor; $needFull = $true }
+                elseif ($cursor -ge $offset + $winH) { $offset = $cursor - $winH + 1; $needFull = $true }
+            }
+
+            if ($needFull) {
+                Draw-PickerAll
+            } elseif ($touchRow) {
+                # Space: chỉ vẽ lại đúng 1 dòng + thanh trạng thái
+                Draw-PickerRow -RowVisual ($cursor - $offset)
+                Draw-PickerStatus
+            } elseif ($cursor -ne $oldCursor) {
+                # Di chuyển trong cùng trang: chỉ vẽ lại 2 dòng (cũ + mới)
+                Draw-PickerRow -RowVisual ($oldCursor - $offset)
+                Draw-PickerRow -RowVisual ($cursor - $offset)
+                Draw-PickerStatus
             }
         }
+    }
+    finally {
+        try { [Console]::CursorVisible = $prevCursorVisible } catch {}
+        try {
+            [Console]::SetCursorPosition(0, [Math]::Min($top + $winH, [Console]::BufferHeight - 1))
+            Write-Host ''
+        } catch {}
     }
 }
 
