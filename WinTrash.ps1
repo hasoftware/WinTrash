@@ -49,7 +49,7 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:WinTrashVersion = [version]'1.1.2'
+$script:WinTrashVersion = [version]'1.1.3'
 $script:UpdateRawBase = 'https://raw.githubusercontent.com/hasoftware/WinTrash/main'
 
 # ════════════════════════════ I18N ════════════════════════════
@@ -424,7 +424,25 @@ function Write-StatusLine {
     if ($Persist) { Write-Host '' }
 }
 
-$script:scanStatus = $null   # hashtable đồng bộ chia sẻ với luồng spinner nền
+$script:scanStatus = $null        # hashtable đồng bộ chia sẻ với luồng spinner nền
+$script:activeSpinner = $null     # handle spinner đang chạy (để dọn khi có sự cố)
+
+function Clear-Screen {
+    # Xóa TRIỆT ĐỂ màn hình: viewport + scrollback (ESC[3J) + đưa con trỏ về (0,0).
+    # Clear-Host thường chỉ xóa viewport -> đuôi log cũ vẫn lộ ra khi vẽ đè.
+    if ($script:ansiOk) {
+        $e = [char]27
+        [Console]::Write("$e[2J$e[3J$e[H")
+    }
+    try { [Console]::Clear() } catch { Clear-Host }
+    try { [Console]::SetCursorPosition(0, 0) } catch {}
+}
+
+function Clear-PendingInput {
+    # Nuốt các phím bấm thừa còn nằm trong buffer (Enter bấm liên tục khi đang dọn...)
+    # để chúng không "tự trả lời" các prompt kế tiếp làm nhảy màn hình
+    try { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } } catch {}
+}
 
 function Start-ScanSpinner {
     <# Spinner chạy trên RUNSPACE NỀN riêng - quay đều 80ms/frame kể cả khi
@@ -460,18 +478,27 @@ function Start-ScanSpinner {
         [Console]::Write("`r" + (' ' * $width) + "`r")
     }).AddArgument($hash).AddArgument($width).AddArgument($script:ansiOk)
     $async = $ps.BeginInvoke()
-    return @{ PS = $ps; Async = $async; Hash = $hash }
+    $handle = @{ PS = $ps; Async = $async; Hash = $hash }
+    $script:activeSpinner = $handle
+    return $handle
 }
 
 function Stop-ScanSpinner {
     param($Handle)
     $script:scanStatus = $null
+    $script:activeSpinner = $null
     if ($null -eq $Handle) { return }
     $Handle.Hash.Active = $false
     # Chờ luồng nền vẽ xong frame cuối + tự xóa dòng rồi mới trả quyền ghi console
     [void]$Handle.Async.AsyncWaitHandle.WaitOne(1000)
     try { $Handle.PS.EndInvoke($Handle.Async) } catch {}
     $Handle.PS.Dispose()
+}
+
+function Stop-LeakedSpinner {
+    # Lưới an toàn: nếu spinner nền còn sống sót (module ném lỗi giữa chừng...)
+    # thì dập nó trước khi vẽ màn hình mới - tránh 2 luồng ghi console chồng nhau
+    if ($script:activeSpinner) { Stop-ScanSpinner -Handle $script:activeSpinner }
 }
 
 function Show-Spinner {
@@ -1614,11 +1641,11 @@ function Invoke-AllScans {
         $mi++
         $before = $script:findings.Count
         # Spinner nền quay đều trong suốt thời gian module chạy (không đứng hình)
+        # try/finally: module có ném lỗi thì spinner vẫn PHẢI được dập (tránh leak
+        # luồng ghi console -> chữ đè lộn xộn lên menu về sau)
         $spinnerHandle = Start-ScanSpinner -Text ("[{0,2}/{1}] {2}..." -f $mi, $scanModules.Count, $mod.Name)
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        & $mod.Fn
-        $sw.Stop()
-        Stop-ScanSpinner -Handle $spinnerHandle
+        try { & $mod.Fn } finally { $sw.Stop(); Stop-ScanSpinner -Handle $spinnerHandle }
         $found = $script:findings.Count - $before
         $countColor = if ($found -gt 0) { [ConsoleColor]::Yellow } else { [ConsoleColor]::DarkGray }
         $redirected = $false
@@ -1700,8 +1727,7 @@ function Invoke-FlowClean {
     if ($DevOnly) {
         $script:findings.Clear()
         $spinnerHandle = Start-ScanSpinner -Text 'DevTrash...'
-        Invoke-ScanDevTrash
-        Stop-ScanSpinner -Handle $spinnerHandle
+        try { Invoke-ScanDevTrash } finally { Stop-ScanSpinner -Handle $spinnerHandle }
     } else {
         Invoke-AllScans -L $L
         Show-ScanSummary -L $L
@@ -1777,8 +1803,7 @@ function Invoke-FlowCleanResume {
     Invoke-AllScans -L $L
     if (@($ids | Where-Object { $_ -like 'DevTrash|*' }).Count -gt 0) {
         $spinnerHandle = Start-ScanSpinner -Text 'DevTrash...'
-        Invoke-ScanDevTrash
-        Stop-ScanSpinner -Handle $spinnerHandle
+        try { Invoke-ScanDevTrash } finally { Stop-ScanSpinner -Handle $spinnerHandle }
     }
     $selected = @($script:findings | Where-Object { $_.RemoveKind -ne 'None' -and $ids -contains (Get-FindingId $_) })
     if ($selected.Count -eq 0) { Write-Host $L.ResumeNothing -ForegroundColor Yellow; return }
@@ -2129,7 +2154,9 @@ if (-not (Test-Interactive)) {
 
 # ---- WIZARD: mỗi bước một màn hình sạch (banner giữ trên đỉnh), có Quay lại ----
 function Show-WizardScreen {
-    Clear-Host
+    Stop-LeakedSpinner      # dập spinner nền còn sót (nếu có) trước khi vẽ màn mới
+    Clear-PendingInput      # nuốt phím Enter bấm thừa để không nhảy màn hình
+    Clear-Screen            # xóa viewport + scrollback + con trỏ về (0,0)
     Show-Banner -Tagline $tagline
 }
 
@@ -2209,6 +2236,8 @@ while ($true) {
         if ([int]::TryParse($choice, [ref]$sel) -and $sel -ge 1 -and $sel -le $menuItems.Count) {
             Show-WizardScreen
             Invoke-OneAction -L $L -Key $menuItems[$sel - 1].Key
+            Stop-LeakedSpinner
+            Clear-PendingInput
             Read-Host $L.PressEnter | Out-Null
         } else {
             Write-Host $L.Invalid -ForegroundColor Red

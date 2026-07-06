@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.3] - 2026-07-06
+
+### Sửa
+- **Màn hình lộn xộn sau khi bấm Enter**: 3 lớp phòng vệ mới - (1) `Clear-Screen` xóa triệt để cả viewport lẫn scrollback (ESC[2J + ESC[3J) thay cho Clear-Host chỉ xóa viewport, (2) spinner nền được bọc try/finally và có lưới `Stop-LeakedSpinner` dập spinner sót trước mỗi lần vẽ màn mới (trước đây module lỗi giữa chừng làm spinner sống dai, vẽ đè lên menu), (3) `Clear-PendingInput` nuốt các phím Enter bấm thừa trong buffer để không tự trả lời prompt kế tiếp.
+
 ## [1.1.2] - 2026-07-06
 
 ### Thêm
