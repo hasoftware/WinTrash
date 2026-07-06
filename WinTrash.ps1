@@ -39,14 +39,17 @@ param(
     [string]$Language,
     [ValidateSet('User', 'Developer')]
     [string]$Role,
-    [ValidateSet('scan', 'clean', 'downloads', 'devscan', 'install-devradar', 'install-claudefy', 'restore', 'temp', 'schedule')]
+    [ValidateSet('scan', 'clean', 'downloads', 'devscan', 'install-devradar', 'install-claudefy', 'restore', 'temp', 'schedule', 'clean-resume')]
     [string]$Action
 )
 
 $ErrorActionPreference = 'Continue'
+# Tắt progress bar mặc định của các cmdlet hệ thống (Get/Remove-NetFirewallRule,
+# Invoke-WebRequest...) - chúng vẽ khối xanh to chèn lên giao diện của mình
+$ProgressPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:WinTrashVersion = [version]'1.1.1'
+$script:WinTrashVersion = [version]'1.1.2'
 $script:UpdateRawBase = 'https://raw.githubusercontent.com/hasoftware/WinTrash/main'
 
 # ════════════════════════════ I18N ════════════════════════════
@@ -92,6 +95,10 @@ $i18n = @{
         UpdateFound = 'Có phiên bản mới {0} (bạn đang dùng {1}). Cập nhật ngay? [y/N]'
         UpdateDone  = 'Cập nhật thành công - đang khởi động lại...'
         UpdateFail  = 'Không cập nhật được: {0} - tiếp tục dùng phiên bản hiện tại.'
+        ElevateAsk  = '{0}/{1} mục cần quyền Administrator. Mở cửa sổ Admin để dọn TOÀN BỘ? [y = mở Admin / n = chỉ dọn phần làm được]'
+        ElevateLaunched = 'Đã mở cửa sổ Administrator - phần dọn tiếp tục ở đó (quét lại nhanh rồi tự dọn đúng các mục bạn đã chọn).'
+        SkippedAdmin = 'Đã bỏ qua {0} mục cần Administrator.'
+        ResumeNothing = 'Không còn mục nào khớp danh sách đã chọn (có thể đã được dọn).'
         PickerTitle = 'CHỌN CÁC MỤC MUỐN DỌN (chưa xóa gì cho tới khi bạn xác nhận)'
         NothingFound= 'Không phát hiện mục nào có thể dọn. Máy sạch!'
         NothingSel  = 'Không chọn mục nào - không làm gì cả.'
@@ -151,6 +158,10 @@ $i18n = @{
         UpdateFound = 'New version {0} available (you have {1}). Update now? [y/N]'
         UpdateDone  = 'Updated successfully - restarting...'
         UpdateFail  = 'Update failed: {0} - continuing with current version.'
+        ElevateAsk  = '{0}/{1} items require Administrator. Open an Admin window to clean EVERYTHING? [y = elevate / n = clean what is possible now]'
+        ElevateLaunched = 'Administrator window opened - cleanup continues there (quick re-scan, then cleans exactly what you picked).'
+        SkippedAdmin = 'Skipped {0} items that require Administrator.'
+        ResumeNothing = 'No items match the saved selection (they may already be cleaned).'
         PickerTitle = 'SELECT ITEMS TO CLEAN (nothing is deleted until you confirm)'
         NothingFound= 'Nothing cleanable found. Your machine is clean!'
         NothingSel  = 'Nothing selected - no action taken.'
@@ -210,6 +221,10 @@ $i18n = @{
         UpdateFound = '发现新版本 {0}（当前 {1}）。立即更新？[y/N]'
         UpdateDone  = '更新成功 - 正在重新启动...'
         UpdateFail  = '更新失败：{0} - 继续使用当前版本。'
+        ElevateAsk  = '{0}/{1} 项需要管理员权限。打开管理员窗口清理全部？[y = 提权 / n = 仅清理当前可行的]'
+        ElevateLaunched = '已打开管理员窗口 - 清理将在那里继续（快速重扫后清理您选择的项目）。'
+        SkippedAdmin = '已跳过 {0} 个需要管理员权限的项目。'
+        ResumeNothing = '没有与已保存选择匹配的项目（可能已被清理）。'
         PickerTitle = '选择要清理的项目（确认前不会删除任何内容）'
         NothingFound= '未发现可清理的项目。您的电脑很干净！'
         NothingSel  = '未选择任何项目 - 不执行任何操作。'
@@ -269,6 +284,10 @@ $i18n = @{
         UpdateFound = 'Доступна новая версия {0} (у вас {1}). Обновить сейчас? [y/N]'
         UpdateDone  = 'Обновление выполнено - перезапуск...'
         UpdateFail  = 'Ошибка обновления: {0} - продолжаем с текущей версией.'
+        ElevateAsk  = '{0}/{1} пунктов требуют прав администратора. Открыть окно администратора для полной очистки? [y / n = очистить возможное]'
+        ElevateLaunched = 'Окно администратора открыто - очистка продолжится там (пересканирование, затем очистка выбранного).'
+        SkippedAdmin = 'Пропущено пунктов, требующих администратора: {0}.'
+        ResumeNothing = 'Нет пунктов, соответствующих сохранённому выбору (возможно, уже очищены).'
         PickerTitle = 'ВЫБЕРИТЕ ПУНКТЫ ДЛЯ ОЧИСТКИ (ничего не удаляется до подтверждения)'
         NothingFound= 'Ничего для очистки не найдено. Ваш компьютер чист!'
         NothingSel  = 'Ничего не выбрано - действий не выполнено.'
@@ -1283,9 +1302,11 @@ function Invoke-ScanProtocols {
                 if ([string]::IsNullOrWhiteSpace($command)) { continue }
                 $exe = Resolve-CommandPath -CommandLine $command
                 if ($exe -and $exe -match '^[A-Za-z]:\\' -and (Test-ExeMissing -ExePath $exe)) {
+                    # HKCR là VIEW GỘP của HKCU+HKLM Classes - phải xóa ở hive thật,
+                    # xóa qua HKCR sẽ vỡ giữa chừng ("subkey does not exist")
                     Add-Finding -Category 'Protocols' -Name "$name`://" -Target $exe `
                         -Detail 'Protocol handler trỏ exe đã mất' `
-                        -RemoveKind 'RegKey' -RemoveData @{ PSPath = "Registry::HKEY_CLASSES_ROOT\$name" }
+                        -RemoveKind 'ProtocolKey' -RemoveData @{ Name = $name }
                 }
             } finally { $cmdKey.Close() }
         } finally { $key.Close() }
@@ -1377,6 +1398,25 @@ function Invoke-ScanDevTrash {
     }
 }
 
+function Test-FindingNeedsAdmin {
+    # Ước lượng mục này có cần Administrator để xóa không (để cảnh báo TRƯỚC khi làm)
+    param($Finding)
+    switch ($Finding.RemoveKind) {
+        'Service'         { return $true }
+        'Firewall'        { return $true }
+        'DefenderPath'    { return $true }
+        'DefenderProcess' { return $true }
+        'Task'            { return ($Finding.RemoveData.TaskPath -eq '\') }   # task gốc thường của hệ thống
+        'PathEntry'       { return ($Finding.RemoveData.Scope -eq 'Machine') }
+        'RegValue'        { return ([string]$Finding.RemoveData.PSPath -match '^(HKLM:|Registry::HKEY_LOCAL_MACHINE)') }
+        'RegKey'          { return ([string]$Finding.RemoveData.PSPath -match '^(HKLM:|Registry::HKEY_LOCAL_MACHINE)') }
+        'ProtocolKey'     { return (Test-Path ("HKLM:\Software\Classes\{0}" -f $Finding.RemoveData.Name)) }
+        'RecycleDir'      { return ([string]$Finding.RemoveData.Path -match '^[A-Za-z]:\\(ProgramData|Program Files)') }
+        'RecycleFile'     { return ([string]$Finding.RemoveData.Path -match '^[A-Za-z]:\\(ProgramData|Program Files)') }
+        default           { return $false }
+    }
+}
+
 # ════════════════════════ REMOVAL ENGINE ════════════════════════
 
 function Remove-SelectedFindings {
@@ -1406,11 +1446,47 @@ function Remove-SelectedFindings {
                     $deferOrSkip = $true   # xử lý gộp ở cuối
                 }
                 'RecycleDir' {
-                    [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($f.RemoveData.Path, 'OnlyErrorDialogs', 'SendToRecycleBin')
+                    try {
+                        [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($f.RemoveData.Path, 'OnlyErrorDialogs', 'SendToRecycleBin')
+                    } catch {
+                        # API Recycle Bin dở chứng (vd: "not supported") -> chuyển cả thư mục
+                        # vào thư mục backup của lần dọn này (vẫn hoàn tác được)
+                        $destDir = Join-Path $backupDir ("dir_{0}_{1}" -f $idx, (Split-Path $f.RemoveData.Path -Leaf))
+                        Move-Item -LiteralPath $f.RemoveData.Path -Destination $destDir -Force -ErrorAction Stop
+                    }
                     if (Test-Path -LiteralPath $f.RemoveData.Path) { throw 'Thư mục vẫn còn (bị khóa?)' }
                 }
                 'RecycleFile' {
-                    [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($f.RemoveData.Path, 'OnlyErrorDialogs', 'SendToRecycleBin')
+                    try {
+                        [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($f.RemoveData.Path, 'OnlyErrorDialogs', 'SendToRecycleBin')
+                    } catch {
+                        # Fallback: copy file vào backup rồi xóa thẳng (fix "not supported" ở ProgramData)
+                        $destFile = Join-Path $backupDir ("file_{0}_{1}" -f $idx, (Split-Path $f.RemoveData.Path -Leaf))
+                        Copy-Item -LiteralPath $f.RemoveData.Path -Destination $destFile -Force -ErrorAction Stop
+                        Remove-Item -LiteralPath $f.RemoveData.Path -Force -ErrorAction Stop
+                    }
+                }
+                'ProtocolKey' {
+                    # Xóa ở CẢ HAI hive thật (HKCU + HKLM Software\Classes), backup từng cái
+                    $protoName = $f.RemoveData.Name
+                    $safeProto = ($protoName -replace '[^\w\.-]', '_')
+                    $deletedAny = $false
+                    $protoErrors = [System.Collections.Generic.List[string]]::new()
+                    foreach ($hivePair in @(
+                        @{ PS = "HKCU:\Software\Classes\$protoName"; Reg = "HKEY_CURRENT_USER\Software\Classes\$protoName" },
+                        @{ PS = "HKLM:\Software\Classes\$protoName"; Reg = "HKEY_LOCAL_MACHINE\Software\Classes\$protoName" })) {
+                        if (-not (Test-Path -Path $hivePair.PS)) { continue }
+                        & reg.exe export $hivePair.Reg (Join-Path $backupDir "protocol_$idx`_$safeProto.reg") /y | Out-Null
+                        try {
+                            Remove-Item -Path $hivePair.PS -Recurse -Force -ErrorAction Stop
+                            $deletedAny = $true
+                        } catch { $protoErrors.Add($_.Exception.Message) }
+                    }
+                    if ($protoErrors.Count -gt 0) {
+                        if ($deletedAny) { throw ('đã xóa 1 hive, hive còn lại lỗi: ' + ($protoErrors -join '; ')) }
+                        throw ($protoErrors -join '; ')
+                    }
+                    if (-not $deletedAny) { throw 'không tìm thấy key ở hive nào (đã bị xóa trước đó?)' }
                 }
                 'RegValue' {
                     $regExe = ConvertTo-RegExePath -PSPath $f.RemoveData.PSPath
@@ -1664,6 +1740,48 @@ function Invoke-FlowClean {
     $selected = @($selectedIdx | ForEach-Object { $removable[$_] })
     $answer = Read-Host ($L.ConfirmDel -f $selected.Count)
     if ($answer -notmatch '^[yY]') { Write-Host $L.NothingSel -ForegroundColor Yellow; return }
+
+    # Chưa phải admin mà có mục cần admin -> đề nghị mở cửa sổ Administrator
+    # (tránh cảnh cả trăm dòng lỗi "Access is denied" như trước)
+    if (-not (Test-IsAdmin)) {
+        $adminNeeded = @($selected | Where-Object { Test-FindingNeedsAdmin -Finding $_ })
+        if ($adminNeeded.Count -gt 0 -and (Test-Interactive)) {
+            $elevAnswer = Read-Host ($L.ElevateAsk -f $adminNeeded.Count, $selected.Count)
+            if ($elevAnswer -match '^[yY]') {
+                # Lưu danh sách ID đã chọn -> cửa sổ admin quét lại và dọn đúng các mục này
+                $pendingDir = Join-Path $PSScriptRoot 'WinTrashBackups'
+                if (-not (Test-Path -LiteralPath $pendingDir)) { New-Item -ItemType Directory -Path $pendingDir -Force | Out-Null }
+                $ids = @($selected | ForEach-Object { Get-FindingId $_ })
+                ConvertTo-Json $ids | Set-Content -LiteralPath (Join-Path $pendingDir 'pending-clean.json') -Encoding UTF8
+                $argStr = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -Language {1} -Action clean-resume' -f $PSCommandPath, $script:Language
+                Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $argStr
+                Write-Host $L.ElevateLaunched -ForegroundColor Green
+                return
+            }
+            # Chọn n: chỉ dọn phần làm được ở quyền thường
+            $selected = @($selected | Where-Object { -not (Test-FindingNeedsAdmin -Finding $_) })
+            Write-Host ($L.SkippedAdmin -f $adminNeeded.Count) -ForegroundColor Yellow
+            if ($selected.Count -eq 0) { return }
+        }
+    }
+    Remove-SelectedFindings -Selected $selected -L $L
+}
+
+function Invoke-FlowCleanResume {
+    # Chạy trong cửa sổ Administrator: đọc danh sách ID đã chọn, quét lại, dọn đúng các mục đó
+    param([hashtable]$L)
+    $pendingFile = Join-Path $PSScriptRoot 'WinTrashBackups\pending-clean.json'
+    if (-not (Test-Path -LiteralPath $pendingFile)) { Write-Host $L.ResumeNothing -ForegroundColor Yellow; return }
+    $ids = @(Get-Content -LiteralPath $pendingFile -Raw | ConvertFrom-Json)
+    Remove-Item -LiteralPath $pendingFile -Force -ErrorAction SilentlyContinue
+    Invoke-AllScans -L $L
+    if (@($ids | Where-Object { $_ -like 'DevTrash|*' }).Count -gt 0) {
+        $spinnerHandle = Start-ScanSpinner -Text 'DevTrash...'
+        Invoke-ScanDevTrash
+        Stop-ScanSpinner -Handle $spinnerHandle
+    }
+    $selected = @($script:findings | Where-Object { $_.RemoveKind -ne 'None' -and $ids -contains (Get-FindingId $_) })
+    if ($selected.Count -eq 0) { Write-Host $L.ResumeNothing -ForegroundColor Yellow; return }
     Remove-SelectedFindings -Selected $selected -L $L
 }
 
@@ -1983,6 +2101,7 @@ function Invoke-OneAction {
         'devscan'          { Invoke-FlowClean -L $L -DevOnly }
         'install-devradar' { Invoke-FlowInstall -L $L -Package 'devradar' }
         'install-claudefy' { Invoke-FlowInstall -L $L -Package 'claudefy' }
+        'clean-resume'     { Invoke-FlowCleanResume -L $L }
     }
 }
 
@@ -1995,6 +2114,8 @@ if ($Action) {
     Show-Banner -Tagline $tagline
     Show-Spinner -Label $L.Init
     Invoke-OneAction -L $L -Key $Action
+    # Cửa sổ admin mở riêng cho clean-resume: giữ lại để người dùng đọc kết quả
+    if ($Action -eq 'clean-resume' -and (Test-Interactive)) { Read-Host $L.PressEnter | Out-Null }
     return
 }
 

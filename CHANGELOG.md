@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.2] - 2026-07-06
+
+### Thêm
+- **Tự động nâng quyền Administrator**: khi xác nhận dọn mà có mục cần admin, script hỏi "mở cửa sổ Admin?" - đồng ý thì lưu danh sách mục đã chọn, mở cửa sổ Administrator (UAC), quét lại nhanh và dọn đúng các mục đó (`-Action clean-resume`). Chọn n thì chỉ dọn phần làm được, không còn cảnh hàng trăm dòng "Access is denied".
+
+### Sửa
+- **Protocols xóa đúng hive**: HKCR là view gộp HKCU+HKLM Classes - xóa qua HKCR gây lỗi "subkey does not exist" giữa chừng; giờ xóa thẳng ở cả hai hive thật (backup .reg từng cái).
+- **Recycle Bin fallback**: khi API Recycle của VisualBasic báo "not supported" (hay gặp với file trong ProgramData), tự chuyển sang copy-vào-backup rồi xóa - vẫn hoàn tác được.
+- **Tắt progress bar hệ thống** (`$ProgressPreference = SilentlyContinue`): các cmdlet như Remove-NetFirewallRule không còn vẽ khối progress xanh đè lên giao diện.
+
 ## [1.1.1] - 2026-07-06
 
 ### Sửa
