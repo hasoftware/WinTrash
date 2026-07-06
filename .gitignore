@@ -1,0 +1,11 @@
+# Du lieu ca nhan / file sinh ra khi chay - KHONG dua len repo
+PathBackups/
+CleanupLogs/
+StartupBackups/
+WinTrashBackups/
+DownloadsLogs/
+ScanHistory/
+legacy/
+wintrash-report_*.html
+wintrash.ignore.json
+*.log

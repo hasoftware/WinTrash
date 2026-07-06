@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse check - Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $errs = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\WinTrash.ps1", [ref]$null, [ref]$errs)
+          if ($errs.Count) { $errs | ForEach-Object { Write-Error ("Line {0}: {1}" -f $_.Extent.StartLineNumber, $_.Message) }; exit 1 }
+          Write-Host 'PS 5.1 parse: OK'
+
+      - name: Parse check - PowerShell 7
+        shell: pwsh
+        run: |
+          $errs = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD/WinTrash.ps1", [ref]$null, [ref]$errs)
+          if ($errs.Count) { $errs | ForEach-Object { Write-Error ("Line {0}: {1}" -f $_.Extent.StartLineNumber, $_.Message) }; exit 1 }
+          Write-Host 'PS 7 parse: OK'
+
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $results = Invoke-ScriptAnalyzer -Path ./WinTrash.ps1 -Severity Error
+          $results | Format-Table -AutoSize
+          if ($results.Count -gt 0) { exit 1 }
+
+      - name: Pester tests
+        shell: pwsh
+        run: |
+          Install-Module Pester -MinimumVersion 5.0 -Force -Scope CurrentUser
+          Invoke-Pester -Path ./tests -CI
