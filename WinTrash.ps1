@@ -49,7 +49,7 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:WinTrashVersion = [version]'1.2.0'
+$script:WinTrashVersion = [version]'1.2.1'
 $script:UpdateRawBase = 'https://raw.githubusercontent.com/hasoftware/WinTrash/main'
 
 # ════════════════════════════ I18N ════════════════════════════
@@ -911,6 +911,53 @@ function Get-OtherUserProfiles {
     return $result.ToArray()
 }
 
+$script:offlineMount = 'WinTrash_Offline'   # điểm gắn tạm trong HKEY_USERS cho hive offline
+
+function Invoke-WithOfflineHive {
+    <# Nạp NTUSER.DAT của user offline vào HKU\WinTrash_Offline, chạy $Body,
+       rồi LUÔN unload (kể cả khi lỗi). Trả về $null nếu không nạp được
+       (hive đang bị khóa - user vừa đăng nhập chẳng hạn). #>
+    param([string]$HivePath, [scriptblock]$Body)
+    # NTUSER.DAT của user khác: non-admin bị từ chối cả quyền đọc -> im lặng bỏ qua
+    if (-not (Test-Path -LiteralPath $HivePath -ErrorAction SilentlyContinue)) { return $null }
+    & reg.exe load "HKU\$script:offlineMount" $HivePath 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { return $null }
+    try {
+        return & $Body
+    } finally {
+        # .NET giữ handle registry -> phải GC trước khi unload mới thành công
+        [gc]::Collect()
+        [gc]::WaitForPendingFinalizers()
+        & reg.exe unload "HKU\$script:offlineMount" 2>$null | Out-Null
+    }
+}
+
+function Read-OfflineRunKeys {
+    # Đọc Run/RunOnce từ hive offline của một profile - trả về mảng entry
+    param([string]$ProfilePath)
+    $hive = Join-Path $ProfilePath 'NTUSER.DAT'
+    $result = Invoke-WithOfflineHive -HivePath $hive -Body {
+        $found = [System.Collections.Generic.List[object]]::new()
+        foreach ($suffix in 'Run', 'RunOnce') {
+            $subKey = "SOFTWARE\Microsoft\Windows\CurrentVersion\$suffix"
+            $key = [Microsoft.Win32.Registry]::Users.OpenSubKey("$script:offlineMount\$subKey")
+            if ($null -eq $key) { continue }
+            try {
+                foreach ($valueName in $key.GetValueNames()) {
+                    $found.Add([PSCustomObject]@{
+                        SubKey  = $subKey
+                        Value   = $valueName
+                        Command = [string]$key.GetValue($valueName)
+                    })
+                }
+            } finally { $key.Close() }
+        }
+        return $found.ToArray()
+    }
+    if ($null -eq $result) { return @() }
+    return @($result)
+}
+
 function Request-MultiUserScan {
     # Chạy admin + máy có user khác -> hỏi có quét cả hồ sơ của họ không.
     # -Auto: không hỏi, bật luôn (dùng cho clean-resume để khớp danh sách đã chọn)
@@ -1154,20 +1201,35 @@ function Invoke-ScanStartup {
             }
         }
     }
-    # Multi-user: Run/RunOnce của các user KHÁC đang đăng nhập (hive nạp trong HKEY_USERS)
+    # Multi-user: Run/RunOnce của các user KHÁC
     foreach ($up in $script:otherUserProfiles) {
-        if (-not $up.Loaded) { continue }
-        foreach ($suffix in 'Run', 'RunOnce') {
-            $hkuKey = "Registry::HKEY_USERS\$($up.Sid)\SOFTWARE\Microsoft\Windows\CurrentVersion\$suffix"
-            if (-not (Test-Path $hkuKey)) { continue }
-            $props = Get-ItemProperty -Path $hkuKey -ErrorAction SilentlyContinue
-            foreach ($prop in $props.PSObject.Properties) {
-                if ($prop.Name -in 'PSPath', 'PSParentPath', 'PSChildName', 'PSDrive', 'PSProvider') { continue }
-                $exe = Resolve-CommandPath -CommandLine ([string]$prop.Value)
+        if ($up.Loaded) {
+            # User đang đăng nhập: hive có sẵn trong HKEY_USERS
+            foreach ($suffix in 'Run', 'RunOnce') {
+                $hkuKey = "Registry::HKEY_USERS\$($up.Sid)\SOFTWARE\Microsoft\Windows\CurrentVersion\$suffix"
+                if (-not (Test-Path $hkuKey)) { continue }
+                $props = Get-ItemProperty -Path $hkuKey -ErrorAction SilentlyContinue
+                foreach ($prop in $props.PSObject.Properties) {
+                    if ($prop.Name -in 'PSPath', 'PSParentPath', 'PSChildName', 'PSDrive', 'PSProvider') { continue }
+                    $exe = Resolve-CommandPath -CommandLine ([string]$prop.Value)
+                    if ($exe -and (Test-ExeMissing -ExePath $exe)) {
+                        Add-Finding -Category 'Startup' -Name ("[{0}] {1}" -f $up.Name, $prop.Name) -Target $exe `
+                            -Detail "Run-key của user $($up.Name)" `
+                            -RemoveKind 'RegValue' -RemoveData @{ PSPath = $hkuKey; Value = $prop.Name }
+                    }
+                }
+            }
+        } else {
+            # User OFFLINE: nạp tạm NTUSER.DAT (reg load), đọc xong NHẢ NGAY.
+            # Hive đang bị khóa (user vừa đăng nhập / process giữ) -> bỏ qua êm.
+            $entries = Read-OfflineRunKeys -ProfilePath $up.Path
+            foreach ($entry in $entries) {
+                $exe = Resolve-CommandPath -CommandLine $entry.Command
                 if ($exe -and (Test-ExeMissing -ExePath $exe)) {
-                    Add-Finding -Category 'Startup' -Name ("[{0}] {1}" -f $up.Name, $prop.Name) -Target $exe `
-                        -Detail "Run-key của user $($up.Name)" `
-                        -RemoveKind 'RegValue' -RemoveData @{ PSPath = $hkuKey; Value = $prop.Name }
+                    Add-Finding -Category 'Startup' -Name ("[{0}] {1}" -f $up.Name, $entry.Value) -Target $exe `
+                        -Detail ("Run-key của user {0} (hive offline)" -f $up.Name) `
+                        -RemoveKind 'OfflineRegValue' `
+                        -RemoveData @{ Hive = (Join-Path $up.Path 'NTUSER.DAT'); SubKey = $entry.SubKey; Value = $entry.Value }
                 }
             }
         }
@@ -1558,6 +1620,7 @@ function Test-FindingNeedsAdmin {
         'RegKey'          { return ([string]$Finding.RemoveData.PSPath -match '^(HKLM:|Registry::HKEY_LOCAL_MACHINE|Registry::HKEY_USERS)') }
         'RegKeyMulti'     { return [bool](@($Finding.RemoveData.Paths) | Where-Object { $_ -match '^(HKLM:|Registry::HKEY_LOCAL_MACHINE|Registry::HKEY_USERS)' }) }
         'ProtocolKey'     { return (Test-Path ("HKLM:\Software\Classes\{0}" -f $Finding.RemoveData.Name)) }
+        'OfflineRegValue' { return $true }   # reg load/unload cần Administrator
         'RecycleDir'      {
             $p = [string]$Finding.RemoveData.Path
             return ($p -match '^[A-Za-z]:\\(ProgramData|Program Files)') -or
@@ -1665,6 +1728,20 @@ function Remove-SelectedFindings {
                         & reg.exe export $regExe (Join-Path $backupDir "regkey_$idx`_$safe.reg") 2>$null /y | Out-Null
                         Remove-Item -Path $f.RemoveData.PSPath -Recurse -Force -ErrorAction Stop
                     }
+                }
+                'OfflineRegValue' {
+                    # Run-key của user offline: nạp hive -> backup -> xóa value -> nhả hive
+                    $od = $f.RemoveData
+                    $safe = ($f.Name -replace '[^\w\.-]', '_')
+                    $offlineResult = Invoke-WithOfflineHive -HivePath $od.Hive -Body {
+                        & reg.exe export ("HKEY_USERS\{0}\{1}" -f $script:offlineMount, $od.SubKey) `
+                            (Join-Path $backupDir "offline_$idx`_$safe.reg") 2>$null /y | Out-Null
+                        $key = [Microsoft.Win32.Registry]::Users.OpenSubKey("$script:offlineMount\$($od.SubKey)", $true)
+                        if ($null -eq $key) { return 'notfound' }
+                        try { $key.DeleteValue($od.Value, $false) } finally { $key.Close() }
+                        return 'ok'
+                    }
+                    if ($null -eq $offlineResult) { throw 'không nạp được hive (user vừa đăng nhập? thử lại sau)' }
                 }
                 'RegKeyMulti' {
                     # Một finding đại diện cho cùng key ở nhiều view registry (64-bit + WOW6432Node):

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.1] - 2026-07-06
+
+### Thêm
+- **Quét registry của user OFFLINE** (multi-user, cần admin): với user chưa đăng nhập, script nạp tạm `NTUSER.DAT` bằng `reg load` vào điểm gắn riêng (`HKU\WinTrash_Offline`), đọc Run/RunOnce rồi **unload ngay** (bọc try/finally + GC để nhả handle chắc chắn). Khi dọn cũng theo đúng chu trình nạp -> backup .reg -> xóa value -> nhả (RemoveKind `OfflineRegValue`). Hive đang bị khóa (user vừa đăng nhập) thì bỏ qua êm và báo rõ khi dọn.
+
 ## [1.2.0] - 2026-07-06
 
 ### Thêm
