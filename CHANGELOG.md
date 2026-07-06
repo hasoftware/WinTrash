@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.0] - 2026-07-06
+
+### Thêm
+- **Tự động kiểm tra cập nhật**: sau khi chọn ngôn ngữ, script so phiên bản với file `VERSION` trên GitHub; có bản mới thì hỏi update/skip, đồng ý thì tải về thay thế (backup `.bak`) và tự khởi động lại. Lỗi mạng bỏ qua êm.
+- **Wizard nhiều màn hình**: mỗi bước (ngôn ngữ -> vai trò -> menu) một màn hình sạch, banner giữ trên đỉnh; nút Quay lại ở bước vai trò (0) và menu chính (B = đổi ngôn ngữ/vai trò).
+
+### Sửa
+- **Picker hết cuộn màn hình**: vùng vẽ cố định + ẩn con trỏ + vẽ tối thiểu (Space vẽ lại 1 dòng, di chuyển vẽ 2 dòng) - mượt như các TUI hiện đại.
+
 ## [1.0.0] - 2026-07-06
 
 Phiên bản đầu tiên — hợp nhất toàn bộ toolkit vào một file `WinTrash.ps1`.

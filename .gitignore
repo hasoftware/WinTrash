@@ -10,3 +10,4 @@ wintrash-report_*.html
 wintrash.ignore.json
 *.log
 .playwright-mcp/
+*.bak

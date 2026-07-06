@@ -46,6 +46,9 @@ param(
 $ErrorActionPreference = 'Continue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
+$script:WinTrashVersion = [version]'1.1.0'
+$script:UpdateRawBase = 'https://raw.githubusercontent.com/hasoftware/WinTrash/main'
+
 # ════════════════════════════ I18N ════════════════════════════
 $i18n = @{
     vi = @{
@@ -83,6 +86,12 @@ $i18n = @{
         SchedCreated= 'Đã tạo lịch quét hàng tháng: task "{0}" (ngày 1, 09:03).'
         SchedRemoved= 'Đã xóa lịch quét hàng tháng.'
         SchedAskRemove = 'Lịch quét đã tồn tại. Xóa nó? [y/N]'
+        Back        = 'Quay lại'
+        MenuSwitch  = 'Đổi ngôn ngữ / vai trò'
+        UpdateCheck = 'Đang kiểm tra phiên bản mới...'
+        UpdateFound = 'Có phiên bản mới {0} (bạn đang dùng {1}). Cập nhật ngay? [y/N]'
+        UpdateDone  = 'Cập nhật thành công - đang khởi động lại...'
+        UpdateFail  = 'Không cập nhật được: {0} - tiếp tục dùng phiên bản hiện tại.'
         PickerTitle = 'CHỌN CÁC MỤC MUỐN DỌN (chưa xóa gì cho tới khi bạn xác nhận)'
         NothingFound= 'Không phát hiện mục nào có thể dọn. Máy sạch!'
         NothingSel  = 'Không chọn mục nào - không làm gì cả.'
@@ -136,6 +145,12 @@ $i18n = @{
         SchedCreated= 'Monthly scan scheduled: task "{0}" (day 1, 09:03).'
         SchedRemoved= 'Monthly scan schedule removed.'
         SchedAskRemove = 'Schedule already exists. Remove it? [y/N]'
+        Back        = 'Back'
+        MenuSwitch  = 'Change language / role'
+        UpdateCheck = 'Checking for updates...'
+        UpdateFound = 'New version {0} available (you have {1}). Update now? [y/N]'
+        UpdateDone  = 'Updated successfully - restarting...'
+        UpdateFail  = 'Update failed: {0} - continuing with current version.'
         PickerTitle = 'SELECT ITEMS TO CLEAN (nothing is deleted until you confirm)'
         NothingFound= 'Nothing cleanable found. Your machine is clean!'
         NothingSel  = 'Nothing selected - no action taken.'
@@ -189,6 +204,12 @@ $i18n = @{
         SchedCreated= '已创建每月扫描计划：任务 "{0}"（1 号 09:03）。'
         SchedRemoved= '已删除每月扫描计划。'
         SchedAskRemove = '计划已存在。删除它？[y/N]'
+        Back        = '返回'
+        MenuSwitch  = '更改语言 / 角色'
+        UpdateCheck = '正在检查更新...'
+        UpdateFound = '发现新版本 {0}（当前 {1}）。立即更新？[y/N]'
+        UpdateDone  = '更新成功 - 正在重新启动...'
+        UpdateFail  = '更新失败：{0} - 继续使用当前版本。'
         PickerTitle = '选择要清理的项目（确认前不会删除任何内容）'
         NothingFound= '未发现可清理的项目。您的电脑很干净！'
         NothingSel  = '未选择任何项目 - 不执行任何操作。'
@@ -242,6 +263,12 @@ $i18n = @{
         SchedCreated= 'Ежемесячное сканирование создано: задача "{0}" (1-е число, 09:03).'
         SchedRemoved= 'Расписание удалено.'
         SchedAskRemove = 'Расписание уже существует. Удалить? [y/N]'
+        Back        = 'Назад'
+        MenuSwitch  = 'Сменить язык / роль'
+        UpdateCheck = 'Проверка обновлений...'
+        UpdateFound = 'Доступна новая версия {0} (у вас {1}). Обновить сейчас? [y/N]'
+        UpdateDone  = 'Обновление выполнено - перезапуск...'
+        UpdateFail  = 'Ошибка обновления: {0} - продолжаем с текущей версией.'
         PickerTitle = 'ВЫБЕРИТЕ ПУНКТЫ ДЛЯ ОЧИСТКИ (ничего не удаляется до подтверждения)'
         NothingFound= 'Ничего для очистки не найдено. Ваш компьютер чист!'
         NothingSel  = 'Ничего не выбрано - действий не выполнено.'
@@ -1818,98 +1845,180 @@ function Invoke-FlowInstall {
     }
 }
 
+# ════════════════════════ SELF-UPDATE ════════════════════════
+
+function Get-RemoteVersion {
+    # Đọc file VERSION trên GitHub - lỗi mạng thì trả null (bỏ qua êm)
+    try {
+        $resp = Invoke-WebRequest -Uri ($script:UpdateRawBase + '/VERSION') -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+        return [version](([string]$resp.Content).Trim())
+    } catch { return $null }
+}
+
+function Invoke-SelfUpdate {
+    param([hashtable]$L)
+    try {
+        $tmp = Join-Path $env:TEMP 'WinTrash.new.ps1'
+        Invoke-WebRequest -Uri ($script:UpdateRawBase + '/WinTrash.ps1') -OutFile $tmp -UseBasicParsing -TimeoutSec 60 -ErrorAction Stop
+        # Kiểm tra file tải về: phải parse được và đúng là WinTrash
+        $errs = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile($tmp, [ref]$null, [ref]$errs)
+        if ($errs.Count -gt 0) { throw 'file tải về bị lỗi cú pháp' }
+        if ((Get-Content -LiteralPath $tmp -Raw) -notmatch 'WinTrashVersion') { throw 'file tải về không hợp lệ' }
+        # Backup bản hiện tại rồi thay thế
+        Copy-Item -LiteralPath $PSCommandPath -Destination ($PSCommandPath + '.bak') -Force
+        Copy-Item -LiteralPath $tmp -Destination $PSCommandPath -Force
+        return $true
+    } catch {
+        Write-Host ($L.UpdateFail -f $_.Exception.Message) -ForegroundColor Yellow
+        return $false
+    }
+}
+
+function Test-UpdatePrompt {
+    # Gọi sau khi chọn ngôn ngữ: có bản mới -> hỏi update/skip. Trả $true nếu đã update (cần restart).
+    param([hashtable]$L)
+    Write-C $L.UpdateCheck -Color DarkGray
+    Write-Host ''
+    $remote = Get-RemoteVersion
+    if (-not $remote -or $remote -le $script:WinTrashVersion) { return $false }
+    $answer = Read-Host ($L.UpdateFound -f $remote, $script:WinTrashVersion)
+    if ($answer -notmatch '^[yY]') { return $false }
+    if (-not (Invoke-SelfUpdate -L $L)) { return $false }
+    Write-Host $L.UpdateDone -ForegroundColor Green
+    Start-Sleep -Milliseconds 800
+    return $true
+}
+
 # ════════════════════════ MAIN ════════════════════════
 
 # Chế độ test (Pester): dot-source script để lấy các hàm, không chạy main
 if ($env:WINTRASH_TEST -eq '1') { return }
 
-Show-Banner -Tagline 'WinTrash Toolkit — Windows leftovers scanner & cleaner | MIT License'
+$tagline = 'WinTrash Toolkit — Windows leftovers scanner & cleaner | MIT License'
 
-if (-not $Language) {
-    if (Test-Interactive) {
-        Write-Host ''
+function Invoke-OneAction {
+    param([hashtable]$L, [string]$Key)
+    switch ($Key) {
+        'scan'             { Invoke-FlowScan -L $L }
+        'clean'            { Invoke-FlowClean -L $L }
+        'downloads'        { Invoke-FlowDownloads -L $L }
+        'temp'             { Invoke-FlowTemp -L $L }
+        'restore'          { Invoke-FlowRestore -L $L }
+        'schedule'         { Invoke-FlowSchedule -L $L }
+        'devscan'          { Invoke-FlowClean -L $L -DevOnly }
+        'install-devradar' { Invoke-FlowInstall -L $L -Package 'devradar' }
+        'install-claudefy' { Invoke-FlowInstall -L $L -Package 'claudefy' }
+    }
+}
+
+# ---- Chế độ chạy thẳng (-Action): không wizard, không Clear-Host ----
+if ($Action) {
+    if (-not $Language) { $Language = 'vi' }
+    if (-not $Role) { $Role = 'User' }
+    $script:Language = $Language
+    $L = $i18n[$Language]
+    Show-Banner -Tagline $tagline
+    Show-Spinner -Label $L.Init
+    Invoke-OneAction -L $L -Key $Action
+    return
+}
+
+# ---- Không tương tác mà cũng không có -Action: hướng dẫn rồi thoát ----
+if (-not (Test-Interactive)) {
+    $script:Language = if ($Language) { $Language } else { 'vi' }
+    Show-Banner -Tagline $tagline
+    Write-Host 'Console không tương tác. Dùng: .\WinTrash.ps1 -Language vi -Role User -Action scan|clean|temp|restore|downloads|schedule'
+    return
+}
+
+# ---- WIZARD: mỗi bước một màn hình sạch (banner giữ trên đỉnh), có Quay lại ----
+function Show-WizardScreen {
+    Clear-Host
+    Show-Banner -Tagline $tagline
+}
+
+$langChoice = $Language
+$roleChoice = $Role
+
+while ($true) {
+    # Bước 1: chọn ngôn ngữ
+    if (-not $langChoice) {
+        Show-WizardScreen
         Write-Host $i18n.vi.ChooseLang -ForegroundColor Cyan
         Write-Host '  1. Tiếng Việt'
         Write-Host '  2. English'
         Write-Host '  3. 中文'
         Write-Host '  4. Русский'
         $choice = Read-Host '>'
-        $Language = switch ($choice) { '1' { 'vi' } '2' { 'en' } '3' { 'zh' } '4' { 'ru' } default { 'en' } }
-    } else { $Language = 'vi' }
-}
-$script:Language = $Language
-$L = $i18n[$Language]
+        $langChoice = switch ($choice) { '1' { 'vi' } '2' { 'en' } '3' { 'zh' } '4' { 'ru' } default { $null } }
+        if (-not $langChoice) { continue }   # gõ sai -> hỏi lại
+    }
+    $script:Language = $langChoice
+    $L = $i18n[$langChoice]
 
-if (-not $Role) {
-    if (Test-Interactive) {
-        Write-Host ''
+    # Kiểm tra cập nhật MỘT lần, ngay sau khi chọn ngôn ngữ
+    if (-not $script:updateChecked) {
+        $script:updateChecked = $true
+        if (Test-UpdatePrompt -L $L) {
+            # Đã thay file bằng bản mới -> chạy lại chính mình với ngôn ngữ đã chọn
+            & $PSCommandPath -Language $langChoice
+            return
+        }
+    }
+
+    # Bước 2: chọn vai trò (0 = quay lại chọn ngôn ngữ)
+    if (-not $roleChoice) {
+        Show-WizardScreen
         Write-Host $L.ChooseRole -ForegroundColor Cyan
         Write-Host ("  1. {0}" -f $L.RoleUser)
         Write-Host ("  2. {0}" -f $L.RoleDev)
+        Write-Host ("  0. {0}" -f $L.Back) -ForegroundColor DarkGray
         $choice = Read-Host '>'
-        $Role = if ($choice -eq '2') { 'Developer' } else { 'User' }
-    } else { $Role = 'User' }
-}
-
-Show-Spinner -Label $L.Init
-
-# Chạy thẳng nếu có -Action
-if ($Action) {
-    switch ($Action) {
-        'scan'             { Invoke-FlowScan -L $L }
-        'clean'            { Invoke-FlowClean -L $L }
-        'downloads'        { Invoke-FlowDownloads -L $L }
-        'devscan'          { Invoke-FlowClean -L $L -DevOnly }
-        'install-devradar' { Invoke-FlowInstall -L $L -Package 'devradar' }
-        'install-claudefy' { Invoke-FlowInstall -L $L -Package 'claudefy' }
-        'restore'          { Invoke-FlowRestore -L $L }
-        'temp'             { Invoke-FlowTemp -L $L }
-        'schedule'         { Invoke-FlowSchedule -L $L }
+        if ($choice -eq '0') { $langChoice = $null; continue }
+        $roleChoice = switch ($choice) { '1' { 'User' } '2' { 'Developer' } default { $null } }
+        if (-not $roleChoice) { continue }
     }
-    return
-}
+    $Role = $roleChoice
 
-# Menu chính
-$menuItems = [System.Collections.Generic.List[object]]::new()
-$menuItems.Add(@{ Key = 'scan';  Label = $L.MenuScan })
-$menuItems.Add(@{ Key = 'clean'; Label = $L.MenuClean })
-$menuItems.Add(@{ Key = 'downloads'; Label = $L.MenuDl })
-$menuItems.Add(@{ Key = 'temp';      Label = $L.MenuTemp })
-$menuItems.Add(@{ Key = 'restore';   Label = $L.MenuRestore })
-$menuItems.Add(@{ Key = 'schedule';  Label = $L.MenuSched })
-if ($Role -eq 'Developer') {
-    $menuItems.Add(@{ Key = 'devscan';          Label = $L.MenuDevScan })
-    $menuItems.Add(@{ Key = 'install-devradar'; Label = $L.MenuRadar })
-    $menuItems.Add(@{ Key = 'install-claudefy'; Label = $L.MenuClaudefy })
-}
-
-while ($true) {
-    Write-Host ''
-    Write-Host ('═' * 60) -ForegroundColor Cyan
-    Write-Host ("  🧹 {0}   [{1} | {2}]" -f $L.MenuTitle, $Language.ToUpper(), $Role) -ForegroundColor Cyan
-    Write-Host ('═' * 60) -ForegroundColor Cyan
-    for ($mi = 0; $mi -lt $menuItems.Count; $mi++) {
-        Write-Host ("  {0}. {1}" -f ($mi + 1), $menuItems[$mi].Label)
+    # Bước 3: menu chính (B = đổi ngôn ngữ/vai trò, 0 = thoát)
+    $menuItems = [System.Collections.Generic.List[object]]::new()
+    $menuItems.Add(@{ Key = 'scan';      Label = $L.MenuScan })
+    $menuItems.Add(@{ Key = 'clean';     Label = $L.MenuClean })
+    $menuItems.Add(@{ Key = 'downloads'; Label = $L.MenuDl })
+    $menuItems.Add(@{ Key = 'temp';      Label = $L.MenuTemp })
+    $menuItems.Add(@{ Key = 'restore';   Label = $L.MenuRestore })
+    $menuItems.Add(@{ Key = 'schedule';  Label = $L.MenuSched })
+    if ($Role -eq 'Developer') {
+        $menuItems.Add(@{ Key = 'devscan';          Label = $L.MenuDevScan })
+        $menuItems.Add(@{ Key = 'install-devradar'; Label = $L.MenuRadar })
+        $menuItems.Add(@{ Key = 'install-claudefy'; Label = $L.MenuClaudefy })
     }
-    Write-Host ("  0. {0}" -f $L.MenuExit)
 
-    $choice = Read-Host $L.Prompt
-    if ($choice -eq '0') { break }
-    $sel = 0
-    if ([int]::TryParse($choice, [ref]$sel) -and $sel -ge 1 -and $sel -le $menuItems.Count) {
-        switch ($menuItems[$sel - 1].Key) {
-            'scan'             { Invoke-FlowScan -L $L }
-            'clean'            { Invoke-FlowClean -L $L }
-            'downloads'        { Invoke-FlowDownloads -L $L }
-            'temp'             { Invoke-FlowTemp -L $L }
-            'restore'          { Invoke-FlowRestore -L $L }
-            'schedule'         { Invoke-FlowSchedule -L $L }
-            'devscan'          { Invoke-FlowClean -L $L -DevOnly }
-            'install-devradar' { Invoke-FlowInstall -L $L -Package 'devradar' }
-            'install-claudefy' { Invoke-FlowInstall -L $L -Package 'claudefy' }
+    $backToSetup = $false
+    while ($true) {
+        Show-WizardScreen
+        Write-Host ('═' * 60) -ForegroundColor Cyan
+        Write-Host ("  {0}   [{1} | {2}]" -f $L.MenuTitle, $script:Language.ToUpper(), $Role) -ForegroundColor Cyan
+        Write-Host ('═' * 60) -ForegroundColor Cyan
+        for ($mi = 0; $mi -lt $menuItems.Count; $mi++) {
+            Write-Host ("  {0}. {1}" -f ($mi + 1), $menuItems[$mi].Label)
         }
-        if (Test-Interactive) { Read-Host $L.PressEnter | Out-Null }
-    } else {
-        Write-Host $L.Invalid -ForegroundColor Red
+        Write-Host ("  B. {0}" -f $L.MenuSwitch) -ForegroundColor DarkGray
+        Write-Host ("  0. {0}" -f $L.MenuExit)
+
+        $choice = Read-Host $L.Prompt
+        if ($choice -eq '0') { return }
+        if ($choice -match '^[bB]$') { $roleChoice = $null; $backToSetup = $true; break }
+        $sel = 0
+        if ([int]::TryParse($choice, [ref]$sel) -and $sel -ge 1 -and $sel -le $menuItems.Count) {
+            Show-WizardScreen
+            Invoke-OneAction -L $L -Key $menuItems[$sel - 1].Key
+            Read-Host $L.PressEnter | Out-Null
+        } else {
+            Write-Host $L.Invalid -ForegroundColor Red
+            Start-Sleep -Milliseconds 700
+        }
     }
+    if ($backToSetup) { continue }
 }
