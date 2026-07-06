@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.4] - 2026-07-06
+
+### Sửa
+- **Spinner khi GỠ cũng quay mượt**: vòng gỡ dùng spinner nền như vòng quét; các dòng kết quả √/× in qua cơ chế "suspend handshake" (spinner tự nhường console trong tích tắc rồi chạy tiếp) - mục xóa lâu không còn làm đứng hình.
+- **App Paths "song sinh" WOW64**: nhiều key App Paths là bản chiếu giữa view 64-bit và WOW6432Node - xóa bản gốc thì bản chiếu biến mất theo, gây lỗi ảo "does not exist" ở lệnh xóa thứ hai. Giờ mỗi cặp gộp thành MỘT mục (RemoveKind RegKeyMulti) xóa mọi view còn tồn tại.
+- **"Đã biến mất" = thành công**: RegKey/RegValue kiểm tra tồn tại trước khi xóa; key/value không còn (đã dọn trước đó, bản chiếu...) được tính OK thay vì báo lỗi.
+
 ## [1.1.3] - 2026-07-06
 
 ### Sửa

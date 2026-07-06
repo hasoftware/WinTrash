@@ -49,7 +49,7 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:WinTrashVersion = [version]'1.1.3'
+$script:WinTrashVersion = [version]'1.1.4'
 $script:UpdateRawBase = 'https://raw.githubusercontent.com/hasoftware/WinTrash/main'
 
 # ════════════════════════════ I18N ════════════════════════════
@@ -454,7 +454,7 @@ function Start-ScanSpinner {
     try { $redirected = [Console]::IsOutputRedirected } catch {}
     if ($redirected) { return $null }   # pipeline/CI: không animation
 
-    $hash = [hashtable]::Synchronized(@{ Active = $true; Text = $Text; Prefix = $Text })
+    $hash = [hashtable]::Synchronized(@{ Active = $true; Text = $Text; Prefix = $Text; Suspend = $false; Suspended = $false })
     $script:scanStatus = $hash
     $width = 120
     try { $width = [Console]::WindowWidth - 1 } catch {}
@@ -466,6 +466,17 @@ function Start-ScanSpinner {
         $e = [char]27
         $i = 0
         while ($h.Active) {
+            # Handshake "tạm ngưng": luồng chính cần in dòng kết quả -> spinner
+            # tự xóa dòng của mình, báo Suspended rồi đứng chờ (không ghi gì)
+            if ($h.Suspend) {
+                if (-not $h.Suspended) {
+                    [Console]::Write("`r" + (' ' * $width) + "`r")
+                    $h.Suspended = $true
+                }
+                Start-Sleep -Milliseconds 15
+                continue
+            }
+            $h.Suspended = $false
             $line = '{0} {1}' -f $frames[$i % $frames.Count], [string]$h.Text
             if ($line.Length -gt $width) { $line = $line.Substring(0, $width - 1) + [char]0x2026 }
             $line = $line.PadRight($width)
@@ -499,6 +510,17 @@ function Stop-LeakedSpinner {
     # Lưới an toàn: nếu spinner nền còn sống sót (module ném lỗi giữa chừng...)
     # thì dập nó trước khi vẽ màn hình mới - tránh 2 luồng ghi console chồng nhau
     if ($script:activeSpinner) { Stop-ScanSpinner -Handle $script:activeSpinner }
+}
+
+function Invoke-WithSpinnerPaused {
+    # In output qua "cửa sổ nhường": yêu cầu spinner nền tạm ngưng + xóa dòng,
+    # chờ nó xác nhận, chạy $Body (in các dòng persist), rồi cho spinner chạy tiếp
+    param($Handle, [scriptblock]$Body)
+    if ($null -eq $Handle) { & $Body; return }
+    $Handle.Hash.Suspend = $true
+    $deadline = [datetime]::Now.AddMilliseconds(500)
+    while (-not $Handle.Hash.Suspended -and [datetime]::Now -lt $deadline) { Start-Sleep -Milliseconds 10 }
+    try { & $Body } finally { $Handle.Hash.Suspend = $false }
 }
 
 function Show-Spinner {
@@ -1132,6 +1154,10 @@ function Invoke-ScanUninstall {
 }
 
 function Invoke-ScanAppPaths {
+    # Gộp các bản "song sinh" giữa view 64-bit và WOW6432Node (nhiều key App Paths
+    # là bản chiếu của nhau - xóa bản này bản kia biến mất theo): mỗi cặp
+    # (tên key + exe đích) chỉ ra MỘT finding, khi xóa sẽ quét cả các view
+    $merged = [ordered]@{}
     foreach ($base in @(
         'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths',
         'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths',
@@ -1142,10 +1168,22 @@ function Invoke-ScanAppPaths {
             if ([string]::IsNullOrWhiteSpace($default)) { continue }
             $exe = [Environment]::ExpandEnvironmentVariables($default.Trim('"'))
             if ($exe -match '^[A-Za-z]:\\' -and (Test-ExeMissing -ExePath $exe)) {
-                Add-Finding -Category 'AppPaths' -Name $sub.PSChildName -Target $exe -Detail "App Path chết tại $base" `
-                    -RemoveKind 'RegKey' -RemoveData @{ PSPath = (Join-Path $base $sub.PSChildName) }
+                $mergeKey = '{0}|{1}' -f $sub.PSChildName.ToLowerInvariant(), $exe.ToLowerInvariant()
+                if (-not $merged.Contains($mergeKey)) {
+                    $merged[$mergeKey] = @{
+                        Name  = $sub.PSChildName
+                        Target = $exe
+                        Paths = [System.Collections.Generic.List[string]]::new()
+                    }
+                }
+                $merged[$mergeKey].Paths.Add((Join-Path $base $sub.PSChildName))
             }
         }
+    }
+    foreach ($m in $merged.Values) {
+        Add-Finding -Category 'AppPaths' -Name $m.Name -Target $m.Target `
+            -Detail ("App Path chết ({0} view registry)" -f $m.Paths.Count) `
+            -RemoveKind 'RegKeyMulti' -RemoveData @{ Paths = $m.Paths.ToArray() }
     }
 }
 
@@ -1437,6 +1475,7 @@ function Test-FindingNeedsAdmin {
         'PathEntry'       { return ($Finding.RemoveData.Scope -eq 'Machine') }
         'RegValue'        { return ([string]$Finding.RemoveData.PSPath -match '^(HKLM:|Registry::HKEY_LOCAL_MACHINE)') }
         'RegKey'          { return ([string]$Finding.RemoveData.PSPath -match '^(HKLM:|Registry::HKEY_LOCAL_MACHINE)') }
+        'RegKeyMulti'     { return [bool](@($Finding.RemoveData.Paths) | Where-Object { $_ -match '^(HKLM:|Registry::HKEY_LOCAL_MACHINE)' }) }
         'ProtocolKey'     { return (Test-Path ("HKLM:\Software\Classes\{0}" -f $Finding.RemoveData.Name)) }
         'RecycleDir'      { return ([string]$Finding.RemoveData.Path -match '^[A-Za-z]:\\(ProgramData|Program Files)') }
         'RecycleFile'     { return ([string]$Finding.RemoveData.Path -match '^[A-Za-z]:\\(ProgramData|Program Files)') }
@@ -1459,9 +1498,13 @@ function Remove-SelectedFindings {
 
     $idx = 0
     $total = $Selected.Count
+    # Spinner nền quay đều suốt quá trình gỡ (mục xóa lâu không làm đứng hình);
+    # các dòng kết quả √/× in qua cơ chế "nhường" để không tranh chấp console
+    $removalSpinner = Start-ScanSpinner -Text $L.Cleaning
+    try {
     foreach ($f in $Selected) {
         $idx++
-        Write-StatusLine ("{0} [{1}/{2}] {3}: {4}" -f (Get-SpinFrame), $idx, $total, $f.Category, $f.Name) -Color Cyan
+        if ($removalSpinner) { $removalSpinner.Hash.Text = ('[{0}/{1}] {2}: {3}' -f $idx, $total, $f.Category, $f.Name) }
         $deferOrSkip = $false
         try {
             switch ($f.RemoveKind) {
@@ -1516,16 +1559,37 @@ function Remove-SelectedFindings {
                     if (-not $deletedAny) { throw 'không tìm thấy key ở hive nào (đã bị xóa trước đó?)' }
                 }
                 'RegValue' {
-                    $regExe = ConvertTo-RegExePath -PSPath $f.RemoveData.PSPath
-                    $safe = ($f.Name -replace '[^\w\.-]', '_')
-                    & reg.exe export $regExe (Join-Path $backupDir "regval_$idx`_$safe.reg") /y | Out-Null
-                    Remove-ItemProperty -Path $f.RemoveData.PSPath -Name $f.RemoveData.Value -Force -ErrorAction Stop
+                    # Value đã biến mất (bản chiếu WOW64 / đã dọn trước đó) = mục tiêu đạt được -> OK
+                    $existing = Get-ItemProperty -Path $f.RemoveData.PSPath -Name $f.RemoveData.Value -ErrorAction SilentlyContinue
+                    if ($null -ne $existing) {
+                        $regExe = ConvertTo-RegExePath -PSPath $f.RemoveData.PSPath
+                        $safe = ($f.Name -replace '[^\w\.-]', '_')
+                        & reg.exe export $regExe (Join-Path $backupDir "regval_$idx`_$safe.reg") 2>$null /y | Out-Null
+                        Remove-ItemProperty -Path $f.RemoveData.PSPath -Name $f.RemoveData.Value -Force -ErrorAction Stop
+                    }
                 }
                 'RegKey' {
-                    $regExe = ConvertTo-RegExePath -PSPath $f.RemoveData.PSPath
+                    # Key đã biến mất = mục tiêu đạt được -> OK, không báo lỗi
+                    if (Test-Path -Path $f.RemoveData.PSPath) {
+                        $regExe = ConvertTo-RegExePath -PSPath $f.RemoveData.PSPath
+                        $safe = ($f.Name -replace '[^\w\.-]', '_')
+                        & reg.exe export $regExe (Join-Path $backupDir "regkey_$idx`_$safe.reg") 2>$null /y | Out-Null
+                        Remove-Item -Path $f.RemoveData.PSPath -Recurse -Force -ErrorAction Stop
+                    }
+                }
+                'RegKeyMulti' {
+                    # Một finding đại diện cho cùng key ở nhiều view registry (64-bit + WOW6432Node):
+                    # xóa mọi view còn tồn tại; view đã biến mất (bản chiếu) thì bỏ qua êm
                     $safe = ($f.Name -replace '[^\w\.-]', '_')
-                    & reg.exe export $regExe (Join-Path $backupDir "regkey_$idx`_$safe.reg") /y | Out-Null
-                    Remove-Item -Path $f.RemoveData.PSPath -Recurse -Force -ErrorAction Stop
+                    $multiErrors = [System.Collections.Generic.List[string]]::new()
+                    foreach ($regPath in @($f.RemoveData.Paths)) {
+                        if (-not (Test-Path -Path $regPath)) { continue }
+                        $regExe = ConvertTo-RegExePath -PSPath $regPath
+                        & reg.exe export $regExe (Join-Path $backupDir "regkey_$idx`_$safe.reg") 2>$null /y | Out-Null
+                        try { Remove-Item -Path $regPath -Recurse -Force -ErrorAction Stop }
+                        catch { $multiErrors.Add($_.Exception.Message) }
+                    }
+                    if ($multiErrors.Count -gt 0) { throw ($multiErrors -join '; ') }
                 }
                 'Service' {
                     & reg.exe export ("HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\" + $f.RemoveData.Name) (Join-Path $backupDir "service_$($f.RemoveData.Name).reg") /y | Out-Null
@@ -1561,20 +1625,22 @@ function Remove-SelectedFindings {
                 default { $deferOrSkip = $true }
             }
             if ($deferOrSkip) { continue }
-            Write-StatusLine ("  √ [{0}/{1}] [{2}] {3}" -f $idx, $total, $f.Category, $f.Name) -Color Green -Persist
+            Invoke-WithSpinnerPaused -Handle $removalSpinner -Body {
+                Write-StatusLine ("  √ [{0}/{1}] [{2}] {3}" -f $idx, $total, $f.Category, $f.Name) -Color Green -Persist
+            }.GetNewClosure()
             $log.Add("OK   [$($f.Category)] $($f.Name) -> $($f.Target)")
             $ok++
         }
         catch {
-            Write-StatusLine ("  × [{0}/{1}] [{2}] {3} - {4}" -f $idx, $total, $f.Category, $f.Name, $_.Exception.Message) -Color Red -Persist
-            $log.Add("FAIL [$($f.Category)] $($f.Name) - $($_.Exception.Message)")
+            $errMsg = $_.Exception.Message
+            Invoke-WithSpinnerPaused -Handle $removalSpinner -Body {
+                Write-StatusLine ("  × [{0}/{1}] [{2}] {3} - {4}" -f $idx, $total, $f.Category, $f.Name, $errMsg) -Color Red -Persist
+            }.GetNewClosure()
+            $log.Add("FAIL [$($f.Category)] $($f.Name) - $errMsg")
             $fail++
         }
     }
-
-    # Xóa dòng trạng thái còn sót trước khi in phần PATH gộp
-    Write-StatusLine ''
-    Write-Host ("`r") -NoNewline
+    } finally { Stop-ScanSpinner -Handle $removalSpinner }
 
     # Xử lý gộp các mục PATH (mỗi scope ghi lại 1 lần, backup raw trước)
     foreach ($scope in $pathChanges.Keys) {
