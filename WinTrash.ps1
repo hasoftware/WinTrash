@@ -46,7 +46,7 @@ param(
 $ErrorActionPreference = 'Continue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:WinTrashVersion = [version]'1.1.0'
+$script:WinTrashVersion = [version]'1.1.1'
 $script:UpdateRawBase = 'https://raw.githubusercontent.com/hasoftware/WinTrash/main'
 
 # ════════════════════════════ I18N ════════════════════════════
@@ -403,6 +403,56 @@ function Write-StatusLine {
     Write-Host "`r" -NoNewline
     Write-C ($Text.PadRight($w)) -Color $Color -NoNewline
     if ($Persist) { Write-Host '' }
+}
+
+$script:scanStatus = $null   # hashtable đồng bộ chia sẻ với luồng spinner nền
+
+function Start-ScanSpinner {
+    <# Spinner chạy trên RUNSPACE NỀN riêng - quay đều 80ms/frame kể cả khi
+       luồng chính đang bận quét (hết cảnh spinner đứng hình ở module lâu).
+       Luồng nền là NGƯỜI GHI DUY NHẤT của dòng trạng thái; luồng chính chỉ
+       cập nhật text qua hashtable đồng bộ. Trả về handle để Stop. #>
+    param([string]$Text)
+    $redirected = $false
+    try { $redirected = [Console]::IsOutputRedirected } catch {}
+    if ($redirected) { return $null }   # pipeline/CI: không animation
+
+    $hash = [hashtable]::Synchronized(@{ Active = $true; Text = $Text; Prefix = $Text })
+    $script:scanStatus = $hash
+    $width = 120
+    try { $width = [Console]::WindowWidth - 1 } catch {}
+
+    $ps = [PowerShell]::Create()
+    [void]$ps.AddScript({
+        param($h, $width, $ansiOk)
+        $frames = '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'
+        $e = [char]27
+        $i = 0
+        while ($h.Active) {
+            $line = '{0} {1}' -f $frames[$i % $frames.Count], [string]$h.Text
+            if ($line.Length -gt $width) { $line = $line.Substring(0, $width - 1) + [char]0x2026 }
+            $line = $line.PadRight($width)
+            if ($ansiOk) { [Console]::Write("`r$e[38;2;38;198;218m$line$e[0m") }
+            else { [Console]::Write("`r$line") }
+            $i++
+            Start-Sleep -Milliseconds 80
+        }
+        # Tự dọn dòng của mình trước khi kết thúc -> không race với luồng chính
+        [Console]::Write("`r" + (' ' * $width) + "`r")
+    }).AddArgument($hash).AddArgument($width).AddArgument($script:ansiOk)
+    $async = $ps.BeginInvoke()
+    return @{ PS = $ps; Async = $async; Hash = $hash }
+}
+
+function Stop-ScanSpinner {
+    param($Handle)
+    $script:scanStatus = $null
+    if ($null -eq $Handle) { return }
+    $Handle.Hash.Active = $false
+    # Chờ luồng nền vẽ xong frame cuối + tự xóa dòng rồi mới trả quyền ghi console
+    [void]$Handle.Async.AsyncWaitHandle.WaitOne(1000)
+    try { $Handle.PS.EndInvoke($Handle.Async) } catch {}
+    $Handle.PS.Dispose()
 }
 
 function Show-Spinner {
@@ -914,7 +964,10 @@ function Invoke-ScanFolders {
         $fi = 0
         foreach ($folder in $folders) {
             $fi++
-            Write-StatusLine ("  {0} Folders › {1} ({2}/{3}): {4}" -f (Get-SpinFrame), $rootInfo.Label, $fi, $folders.Count, $folder.Name)
+            # Cập nhật text cho spinner nền (không tự ghi console -> không tranh chấp)
+            if ($script:scanStatus) {
+                $script:scanStatus.Text = ('{0} › {1} ({2}/{3}): {4}' -f $script:scanStatus.Prefix, $rootInfo.Label, $fi, $folders.Count, $folder.Name)
+            }
             if ($systemFolders -contains $folder.Name) { continue }
             if ($rootInfo.Label -eq 'Local' -and $folder.Name -eq 'Programs') { continue }
 
@@ -1293,7 +1346,11 @@ function Invoke-ScanDevTrash {
     $ti = 0
     foreach ($tc in $toolchains) {
         $ti++
-        Write-StatusLine ("  {0} DevTrash ({1}/{2}): {3}" -f (Get-SpinFrame), $ti, $toolchains.Count, $tc.Name)
+        if ($script:scanStatus) {
+            $script:scanStatus.Text = ('{0} › {1} ({2}/{3})' -f $script:scanStatus.Prefix, $tc.Name, $ti, $toolchains.Count)
+        } else {
+            Write-StatusLine ("  {0} DevTrash ({1}/{2}): {3}" -f (Get-SpinFrame), $ti, $toolchains.Count, $tc.Name)
+        }
         $isInstalled = $null -ne (Get-Command $tc.Command -ErrorAction SilentlyContinue)
         $cacheSizeMB = 0.0
         $existing = [System.Collections.Generic.List[object]]::new()
@@ -1480,10 +1537,12 @@ function Invoke-AllScans {
     foreach ($mod in $scanModules) {
         $mi++
         $before = $script:findings.Count
-        Write-StatusLine ("{0} [{1,2}/{2}] {3}..." -f (Get-SpinFrame), $mi, $scanModules.Count, $mod.Name) -Color Cyan
+        # Spinner nền quay đều trong suốt thời gian module chạy (không đứng hình)
+        $spinnerHandle = Start-ScanSpinner -Text ("[{0,2}/{1}] {2}..." -f $mi, $scanModules.Count, $mod.Name)
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         & $mod.Fn
         $sw.Stop()
+        Stop-ScanSpinner -Handle $spinnerHandle
         $found = $script:findings.Count - $before
         $countColor = if ($found -gt 0) { [ConsoleColor]::Yellow } else { [ConsoleColor]::DarkGray }
         $redirected = $false
@@ -1564,7 +1623,9 @@ function Invoke-FlowClean {
     param([hashtable]$L, [switch]$DevOnly)
     if ($DevOnly) {
         $script:findings.Clear()
+        $spinnerHandle = Start-ScanSpinner -Text 'DevTrash...'
         Invoke-ScanDevTrash
+        Stop-ScanSpinner -Handle $spinnerHandle
     } else {
         Invoke-AllScans -L $L
         Show-ScanSummary -L $L
@@ -1835,13 +1896,26 @@ function Invoke-FlowInstall {
         $ver = (& node --version) -replace '^v', ''
         if ([version]$ver -lt [version]'18.0') { Write-Host $L.NeedNode -ForegroundColor Red; return }
     } catch {}
-    $logFile = Join-Path $env:TEMP ("wintrash_install_{0}.log" -f (Get-Date -Format 'HHmmss'))
-    $cmdLine = if ($Package -eq 'devradar') { 'npm install -g @hasoftware/devradar' } else { 'npx --yes @hasoftware/claudefy' }
-    $code = Invoke-WithSpinner -CommandLine $cmdLine -Label ("{0} {1}" -f $L.Installing, $Package) -LogFile $logFile
-    if ($code -eq 0) {
-        Write-Host ("√ {0}" -f $L.InstallOk) -ForegroundColor Green
+    # Chạy TRỰC TIẾP trong console (không spinner, không cửa sổ ẩn):
+    # - người dùng thấy tiến trình thật của npm/npx
+    # - installer TƯƠNG TÁC như Claudefy (có menu chọn) hoạt động bình thường
+    #   (trước đây chạy ẩn -> installer chờ phím trong cửa sổ vô hình = tưởng bị treo)
+    Write-Host ''
+    Write-C ("═══ {0} {1} ═══" -f $L.Installing, $Package) -Color Cyan
+    Write-Host ''
+    if ($Package -eq 'devradar') {
+        & npm install -g '@hasoftware/devradar'
     } else {
-        Write-Host ("× " + ($L.InstallFail -f $logFile)) -ForegroundColor Red
+        & npx --yes '@hasoftware/claudefy'
+    }
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host ''
+        Write-C ("√ {0}" -f $L.InstallOk) -Color Green
+        Write-Host ''
+    } else {
+        Write-Host ''
+        Write-C ("× " + ($L.InstallFail -f "exit code $LASTEXITCODE")) -Color Red
+        Write-Host ''
     }
 }
 

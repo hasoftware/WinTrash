@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.1] - 2026-07-06
+
+### Sửa
+- **Spinner quét quay mượt liên tục**: chuyển animation sang runspace nền (80ms/frame) - không còn đứng hình khi module chạy lâu (Firewall ~16s). Luồng nền là người ghi duy nhất của dòng trạng thái, module chỉ cập nhật text qua hashtable đồng bộ.
+- **Cài DevRadar/Claudefy hiển thị trực tiếp**: bỏ chế độ chạy ẩn + spinner; output npm/npx stream thẳng ra console và installer tương tác (Claudefy có menu) hoạt động bình thường - trước đây chạy trong cửa sổ ẩn khiến installer chờ phím mà người dùng tưởng bị treo.
+
 ## [1.1.0] - 2026-07-06
 
 ### Thêm
