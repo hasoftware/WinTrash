@@ -49,7 +49,7 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:WinTrashVersion = [version]'1.2.1'
+$script:WinTrashVersion = [version]'1.2.2'
 $script:UpdateRawBase = 'https://raw.githubusercontent.com/hasoftware/WinTrash/main'
 
 # ════════════════════════════ I18N ════════════════════════════
@@ -1791,9 +1791,13 @@ function Remove-SelectedFindings {
                 default { $deferOrSkip = $true }
             }
             if ($deferOrSkip) { continue }
+            # KHÔNG dùng GetNewClosure: nó buộc block vào dynamic module -> khi chạy
+            # script kiểu `.\WinTrash.ps1` (hàm nằm ở script scope, không phải global
+            # như khi chạy -File) thì module không thấy Write-StatusLine (issue #1).
+            # Block thường giữ session state gốc -> hàm lẫn biến đều resolve đúng.
             Invoke-WithSpinnerPaused -Handle $removalSpinner -Body {
                 Write-StatusLine ("  √ [{0}/{1}] [{2}] {3}" -f $idx, $total, $f.Category, $f.Name) -Color Green -Persist
-            }.GetNewClosure()
+            }
             $log.Add("OK   [$($f.Category)] $($f.Name) -> $($f.Target)")
             $ok++
         }
@@ -1801,7 +1805,7 @@ function Remove-SelectedFindings {
             $errMsg = $_.Exception.Message
             Invoke-WithSpinnerPaused -Handle $removalSpinner -Body {
                 Write-StatusLine ("  × [{0}/{1}] [{2}] {3} - {4}" -f $idx, $total, $f.Category, $f.Name, $errMsg) -Color Red -Persist
-            }.GetNewClosure()
+            }
             $log.Add("FAIL [$($f.Category)] $($f.Name) - $errMsg")
             $fail++
         }

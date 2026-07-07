@@ -1,4 +1,4 @@
-# Pester 5 tests cho các hàm thuần túy của WinTrash.ps1
+﻿# Pester 5 tests cho các hàm thuần túy của WinTrash.ps1
 # Chạy: Invoke-Pester -Path tests\
 # Cơ chế: đặt WINTRASH_TEST=1 rồi dot-source script -> chỉ nạp hàm, không chạy main.
 
@@ -103,4 +103,24 @@ Describe 'Get-SeverityColor' {
     It 'High -> Red'    { Get-SeverityColor -Severity 'High'   | Should -Be ([ConsoleColor]::Red) }
     It 'Medium -> Yellow' { Get-SeverityColor -Severity 'Medium' | Should -Be ([ConsoleColor]::Yellow) }
     It 'Info -> Blue'   { Get-SeverityColor -Severity 'Info'   | Should -Be ([ConsoleColor]::Blue) }
+}
+
+Describe 'Regression issue #1: cấm GetNewClosure' {
+    It 'WinTrash.ps1 không chứa lời gọi .GetNewClosure()' {
+        # GetNewClosure buộc scriptblock vào dynamic module; tra cứu lệnh trong module
+        # chỉ đi module -> global, BỎ QUA script scope. Chạy script kiểu `.\WinTrash.ps1`
+        # (hàm nằm ở script scope, khác với -File đặt hàm vào global) thì mọi hàm của
+        # script "biến mất" bên trong closure -> "Write-StatusLine is not recognized"
+        # ngay giữa lúc dọn (issue #1). Block thường đã giữ nguyên session state, đủ dùng.
+        $tokens = $null; $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PSScriptRoot '..\WinTrash.ps1'), [ref]$tokens, [ref]$errors)
+        $calls = $ast.FindAll({
+            param($node)
+            $node -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and
+            $node.Member -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
+            $node.Member.Value -eq 'GetNewClosure'
+        }, $true)
+        $calls | Should -HaveCount 0
+    }
 }

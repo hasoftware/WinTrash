@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.2] - 2026-07-07
+
+### Sửa
+- **"Write-StatusLine is not recognized" khi dọn (issue #1)**: hai scriptblock in dòng kết quả √/× trong `Remove-SelectedFindings` dùng `.GetNewClosure()` - closure bị buộc vào dynamic module, mà tra cứu lệnh trong module chỉ đi *module -> global*, bỏ qua script scope. Chạy script bằng `.\WinTrash.ps1` trong console (hàm nằm ở script scope) là dính lỗi với MỌI mục xóa, bộ đếm OK/lỗi về 0 và `cleanup.log` rỗng (dù xóa + backup vẫn chạy thật); chạy bằng `-File`/chuột phải thì không sao (hàm vào global scope) nên trước giờ không lộ. Fix: bỏ `GetNewClosure` - block thường giữ nguyên session state, hàm lẫn biến đều resolve đúng ở mọi kiểu chạy, trên cả PS 5.1 lẫn PS 7.
+- **Test suite vỡ cú pháp trên PS 5.1**: `tests\WinTrash.Tests.ps1` thiếu UTF-8 BOM - PS 5.1 đọc file thành CP1252, vài byte của chữ Việt biến thành smart-quote làm parser hiểu nhầm chuỗi. Thêm BOM (giống `WinTrash.ps1`); thêm test AST chặn `GetNewClosure` tái xuất.
+
 ## [1.2.1] - 2026-07-06
 
 ### Thêm
