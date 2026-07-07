@@ -1,0 +1,94 @@
+name: Báo lỗi (Bug report)
+description: Script báo lỗi đỏ, chạy sai, treo, hiển thị hỏng... (Something is broken)
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Cảm ơn bạn đã báo lỗi. Ba thông tin đầu tiên bên dưới quyết định việc tái hiện được lỗi hay không — đừng bỏ qua.
+        (English is welcome too — just fill the fields in English.)
+  - type: input
+    id: wintrash-version
+    attributes:
+      label: Phiên bản WinTrash
+      description: Hiện ở banner khi chạy script, hoặc mở file tìm dòng WinTrashVersion
+      placeholder: "1.2.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: ps-engine
+    attributes:
+      label: PowerShell engine
+      description: Chạy `$PSVersionTable.PSVersion` để xem
+      options:
+        - Windows PowerShell 5.1
+        - PowerShell 7.x
+        - Cả hai đều lỗi
+        - Không rõ
+    validations:
+      required: true
+  - type: dropdown
+    id: invoke-style
+    attributes:
+      label: Cách chạy script
+      description: Quan trọng — cùng một lỗi có thể chỉ xuất hiện ở MỘT cách chạy
+      options:
+        - Gõ .\WinTrash.ps1 trong cửa sổ PowerShell
+        - powershell/pwsh -File WinTrash.ps1
+        - Chuột phải file -> Run with PowerShell
+        - Khác (ghi rõ ở phần mô tả)
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Phiên bản Windows
+      description: Chạy `winver` để xem
+      placeholder: "Windows 11 Pro 23H2"
+    validations:
+      required: false
+  - type: dropdown
+    id: action
+    attributes:
+      label: Đang làm gì thì gặp lỗi
+      options:
+        - Quét (scan)
+        - Dọn dẹp (clean)
+        - Sắp xếp Downloads
+        - Dọn Temp
+        - Khôi phục (restore)
+        - Lịch quét (schedule)
+        - Developer mode / DevTrash
+        - Tự cập nhật (self-update)
+        - Khác
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Mô tả lỗi và các bước tái hiện
+      description: Làm gì, theo thứ tự nào, thì thấy gì?
+      placeholder: |
+        1. Chạy .\WinTrash.ps1, chọn Tiếng Việt, vai trò User
+        2. Chọn Dọn dẹp, tick 3 mục, Enter, gõ y
+        3. Màn hình hiện...
+    validations:
+      required: true
+  - type: textarea
+    id: error-text
+    attributes:
+      label: Thông báo lỗi nguyên văn
+      description: Copy toàn bộ khối chữ đỏ trong console (nếu có)
+      render: text
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Xác nhận
+      options:
+        - label: Tôi đã thử phiên bản mới nhất (chạy script và đồng ý khi được hỏi cập nhật)
+          required: false
+        - label: Tôi đã tìm trong các issue cũ và chưa thấy lỗi này
+          required: true

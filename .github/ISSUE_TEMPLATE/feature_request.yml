@@ -1,0 +1,34 @@
+name: Đề xuất tính năng (Feature request)
+description: Ý tưởng tính năng mới hoặc cải tiến tính năng có sẵn (Suggest an idea)
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Vấn đề bạn muốn giải quyết
+      description: Tính năng này giúp gì? Hiện tại bạn đang phải làm thủ công ra sao?
+      placeholder: "Ví dụ: máy tôi có nhiều tàn dư của X mà tool chưa quét được..."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Giải pháp mong muốn
+      description: Mô tả cách bạn hình dung tính năng hoạt động
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Phương án thay thế đã cân nhắc
+      description: Tool/cách làm khác bạn đã thử và vì sao chưa ổn
+    validations:
+      required: false
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Nguyên tắc an toàn
+      options:
+        - label: Tính năng này tôn trọng nguyên tắc của tool - không tự động xóa, mọi thao tác xóa phải qua checkbox + xác nhận + backup
+          required: true
