@@ -694,13 +694,15 @@ function Show-CheckboxMenu {
                         if ($ignoredFlag[$j]) { $ign.Add($j) }
                     }
                     $script:pickerIgnored = $ign.ToArray()
-                    return $result.ToArray()
+                    # Bọc dấu phẩy: mảng RỖNG trả thẳng sẽ bị pipeline unwrap thành $null
+                    # -> caller nhầm với sentinel "console không tương tác" (return $null ở trên)
+                    return , $result.ToArray()
                 }
                 'Escape'    {
                     $ign = [System.Collections.Generic.List[int]]::new()
                     for ($j = 0; $j -lt $count; $j++) { if ($ignoredFlag[$j]) { $ign.Add($j) } }
                     $script:pickerIgnored = $ign.ToArray()
-                    return @()
+                    return , @()
                 }
             }
 
@@ -1598,11 +1600,16 @@ function Invoke-ScanDevTrash {
             }
         }
     }
-    Write-StatusLine ("√ DevTrash: đã kiểm tra {0} toolchain" -f $toolchains.Count) -Color Green -Persist
-    Write-Host ("[ĐANG CÀI] {0} toolchain - dọn bằng lệnh CHÍNH CHỦ (không tự xóa):" -f $installed.Count) -ForegroundColor Cyan
-    foreach ($it in ($installed | Sort-Object SizeMB -Descending)) {
-        $color = if ($it.SizeMB -gt 1024) { 'Yellow' } else { 'Gray' }
-        Write-Host ("  • {0,-18} {1,8:N0} MB   → {2}" -f $it.Name, $it.SizeMB, $it.CleanCmd) -ForegroundColor $color
+    # In báo cáo qua cơ chế "nhường" của spinner nền (caller start spinner TRƯỚC khi
+    # gọi hàm này, stop ở finally SAU khi return) - in thẳng sẽ bị frame spinner
+    # 80ms vẽ đè lên dòng đang in -> báo cáo garbled/lệch cột (xác suất thấp nhưng thật)
+    Invoke-WithSpinnerPaused -Handle $script:activeSpinner -Body {
+        Write-StatusLine ("√ DevTrash: đã kiểm tra {0} toolchain" -f $toolchains.Count) -Color Green -Persist
+        Write-Host ("[ĐANG CÀI] {0} toolchain - dọn bằng lệnh CHÍNH CHỦ (không tự xóa):" -f $installed.Count) -ForegroundColor Cyan
+        foreach ($it in ($installed | Sort-Object SizeMB -Descending)) {
+            $color = if ($it.SizeMB -gt 1024) { 'Yellow' } else { 'Gray' }
+            Write-Host ("  • {0,-18} {1,8:N0} MB   → {2}" -f $it.Name, $it.SizeMB, $it.CleanCmd) -ForegroundColor $color
+        }
     }
 }
 
@@ -2173,9 +2180,18 @@ function Invoke-FlowSchedule {
         }
         return
     }
-    $scriptPath = Join-Path $PSScriptRoot 'WinTrash.ps1'
+    # $PSCommandPath (không hardcode tên file): user đổi tên script (vd "WinTrash (1).ps1")
+    # thì task vẫn trỏ đúng file đang chạy; schtasks không validate /TR nên trỏ sai
+    # là fail im lặng vĩnh viễn dù báo tạo thành công
+    $scriptPath = $PSCommandPath
     $tr = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{0}\" -Language {1} -Role User -Action scan' -f $scriptPath, $script:Language
-    & schtasks.exe /Create /SC MONTHLY /D 1 /ST 09:03 /TN $taskName /TR $tr /F 2>$null | Out-Null
+    # PS 7.3+ mặc định PSNativeCommandArgumentPassing='Windows' sẽ escape LẠI chuỗi \"
+    # thành \\\" -> task lưu literal \" quanh đường dẫn và không bao giờ chạy được.
+    # Ép 'Legacy' trong scope con để giữ đúng hành vi PS 5.1 (trên 5.1 gán biến này vô hại).
+    & {
+        $PSNativeCommandArgumentPassing = 'Legacy'
+        schtasks.exe /Create /SC MONTHLY /D 1 /ST 09:03 /TN $taskName /TR $tr /F 2>$null
+    } | Out-Null
     if ($LASTEXITCODE -eq 0) {
         Write-Host ($L.SchedCreated -f $taskName) -ForegroundColor Green
     } else {
