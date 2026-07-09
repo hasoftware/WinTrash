@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0] - 2026-07-09
+
+### Thêm
+- **Quét tàn dư Docker** (module 17): Docker Desktop/CLI đã gỡ mà còn sót thì báo — thư mục dữ liệu (`%LOCALAPPDATA%\Docker` chứa vhdx nhiều GB, `%APPDATA%\Docker`, `%PROGRAMDATA%\Docker`, `~\.docker`, thư mục cài đặt sót trong Program Files) và đăng ký WSL distro `docker-desktop`/`docker-desktop-data` mồ côi. Docker còn cài thì chỉ báo kho dữ liệu >= 1 GB kèm lệnh dọn chính chủ (`docker system prune`) dạng Info, không cho xóa.
+- **Quét tàn dư WSL** (module 18): đăng ký distro trong `HKCU\...\Lxss` trỏ tới thư mục đã biến mất (High, xóa key kèm backup .reg), dữ liệu distro `ext4.vhdx` trên đĩa mà WSL không còn đăng ký — cả trong `%LOCALAPPDATA%\wsl` lẫn gói Store đã gỡ (Medium), và thư mục `lxss` legacy của WSL1 cũ. Distro đăng ký hợp lệ và gói Store còn cài KHÔNG bị đụng tới; không xác định được trạng thái gói (Get-AppxPackage lỗi) thì bỏ qua cho an toàn.
+- **Hiện "CÓ GÌ MỚI" trước khi cập nhật**: prompt tự cập nhật giờ tải `CHANGELOG.md` từ GitHub và liệt kê thay đổi của TẤT CẢ các bản nằm giữa bản đang dùng và bản mới (tối đa 30 dòng) rồi mới hỏi y/N — biết mình sắp nhận gì trước khi bấm. Tải/parse lỗi thì bỏ qua êm và vẫn hỏi cập nhật như cũ.
+
 ## [1.2.2] - 2026-07-07
 
 ### Sửa

@@ -105,6 +105,64 @@ Describe 'Get-SeverityColor' {
     It 'Info -> Blue'   { Get-SeverityColor -Severity 'Info'   | Should -Be ([ConsoleColor]::Blue) }
 }
 
+Describe 'Get-ChangelogForUpdate' {
+    BeforeAll {
+        $sampleMd = @"
+# Changelog
+
+## [1.3.0] - 2026-07-09
+
+### Thêm
+- **Quét Docker**: phát hiện tàn dư Docker Desktop.
+
+## [1.2.2] - 2026-07-07
+
+### Sửa
+- **Lỗi X**: đã sửa xong.
+
+## [1.0.0] - 2026-07-06
+
+Phiên bản đầu tiên.
+"@
+    }
+    It 'chỉ lấy các bản trong khoảng (Current, Remote]' {
+        $r = @(Get-ChangelogForUpdate -Markdown $sampleMd -Current ([version]'1.2.2') -Remote ([version]'1.3.0'))
+        ($r -join "`n") | Should -Match '\[1\.3\.0\]'
+        ($r -join "`n") | Should -Not -Match '\[1\.2\.2\]'
+        ($r -join "`n") | Should -Not -Match '\[1\.0\.0\]'
+    }
+    It 'gộp đủ các bản khi người dùng nhảy cóc nhiều phiên bản' {
+        $r = @(Get-ChangelogForUpdate -Markdown $sampleMd -Current ([version]'1.0.0') -Remote ([version]'1.3.0'))
+        ($r -join "`n") | Should -Match '\[1\.3\.0\]'
+        ($r -join "`n") | Should -Match '\[1\.2\.2\]'
+        ($r -join "`n") | Should -Not -Match '\[1\.0\.0\]'
+    }
+    It 'bỏ markdown đậm ** nhưng giữ nội dung' {
+        $r = @(Get-ChangelogForUpdate -Markdown $sampleMd -Current ([version]'1.2.2') -Remote ([version]'1.3.0'))
+        ($r -join "`n") | Should -Not -Match '\*\*'
+        ($r -join "`n") | Should -Match 'Quét Docker'
+        ($r -join "`n") | Should -Match 'Thêm:'
+    }
+    It 'markdown rỗng/null -> danh sách rỗng, không ném lỗi' {
+        @(Get-ChangelogForUpdate -Markdown '' -Current ([version]'1.0') -Remote ([version]'2.0')) | Should -HaveCount 0
+        @(Get-ChangelogForUpdate -Markdown $null -Current ([version]'1.0') -Remote ([version]'2.0')) | Should -HaveCount 0
+    }
+    It 'header phiên bản không hợp lệ thì bỏ qua, không sập' {
+        $bad = "## [abc] - hỏng`n- dòng rác`n## [2.0.0]`n- dòng thật"
+        $r = @(Get-ChangelogForUpdate -Markdown $bad -Current ([version]'1.0') -Remote ([version]'2.0.0'))
+        ($r -join "`n") | Should -Match 'dòng thật'
+        ($r -join "`n") | Should -Not -Match 'dòng rác'
+    }
+}
+
+Describe 'Danh sách module quét' {
+    It 'có đúng 18 module, gồm Docker và WSL' {
+        @($scanModules).Count | Should -Be 18
+        @($scanModules | ForEach-Object { $_.Name }) | Should -Contain 'Docker'
+        @($scanModules | ForEach-Object { $_.Name }) | Should -Contain 'WSL'
+    }
+}
+
 Describe 'Regression issue #1: cấm GetNewClosure' {
     It 'WinTrash.ps1 không chứa lời gọi .GetNewClosure()' {
         # GetNewClosure buộc scriptblock vào dynamic module; tra cứu lệnh trong module

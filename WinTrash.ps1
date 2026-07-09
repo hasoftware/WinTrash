@@ -1,15 +1,15 @@
 ﻿<#
 .SYNOPSIS
-    WinTrash Toolkit - ALL-IN-ONE. Quét 16 loại tàn dư ứng dụng Windows,
+    WinTrash Toolkit - ALL-IN-ONE. Quét 18 loại tàn dư ứng dụng Windows,
     cho CHỌN TỪNG MỤC bằng phím Space rồi mới dọn (luôn backup trước khi xóa).
 
 .DESCRIPTION
     Một file duy nhất gồm:
       - Menu đa ngôn ngữ (Tiếng Việt / English / 中文 / Русский)
       - 2 vai trò: User / Developer
-      - 16 module quét (PATH, EnvVars, Folders, Services, Startup, Tasks,
+      - 18 module quét (PATH, EnvVars, Folders, Services, Startup, Tasks,
         Uninstall, AppPaths, Shortcuts, Firewall, Defender, Certs, IFEO,
-        NativeMsg, Protocols, VendorReg)
+        NativeMsg, Protocols, VendorReg, Docker, WSL)
       - Dọn dẹp TƯƠNG TÁC: danh sách checkbox, ↑↓ di chuyển, Space chọn,
         A chọn hết, N bỏ hết, Enter xác nhận, Esc hủy
       - Mọi thao tác xóa đều backup (.reg / .xml / Recycle Bin / log)
@@ -49,7 +49,7 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:WinTrashVersion = [version]'1.2.2'
+$script:WinTrashVersion = [version]'1.3.0'
 $script:UpdateRawBase = 'https://raw.githubusercontent.com/hasoftware/WinTrash/main'
 
 # ════════════════════════════ I18N ════════════════════════════
@@ -60,7 +60,7 @@ $i18n = @{
         RoleUser    = 'Người dùng thường'
         RoleDev     = 'Developer (thêm quét toolchain, cài DevRadar + Claudefy)'
         MenuTitle   = 'WINTRASH TOOLKIT'
-        MenuScan    = 'Quét tổng thể 16 loại tàn dư (chỉ đọc + báo cáo HTML)'
+        MenuScan    = 'Quét tổng thể 18 loại tàn dư (chỉ đọc + báo cáo HTML)'
         MenuClean   = 'Quét & DỌN DẸP - tự chọn từng mục bằng phím Space'
         MenuDl      = 'Sắp xếp Downloads (xem trước, chọn nhóm, có Undo)'
         MenuDevScan = '[Dev] Quét cache toolchain + dọn cache mồ côi'
@@ -93,6 +93,8 @@ $i18n = @{
         MenuSwitch  = 'Đổi ngôn ngữ / vai trò'
         UpdateCheck = 'Đang kiểm tra phiên bản mới...'
         UpdateFound = 'Có phiên bản mới {0} (bạn đang dùng {1}). Cập nhật ngay? [y/N]'
+        UpdateWhatsNew = 'CÓ GÌ MỚI trong {0}:'
+        UpdateMoreNotes = '... và {0} dòng nữa - xem đầy đủ: CHANGELOG.md trên GitHub'
         UpdateDone  = 'Cập nhật thành công - đang khởi động lại...'
         UpdateFail  = 'Không cập nhật được: {0} - tiếp tục dùng phiên bản hiện tại.'
         ElevateAsk  = '{0}/{1} mục cần quyền Administrator. Mở cửa sổ Admin để dọn TOÀN BỘ? [y = mở Admin / n = chỉ dọn phần làm được]'
@@ -125,7 +127,7 @@ $i18n = @{
         RoleUser    = 'Regular user'
         RoleDev     = 'Developer (adds toolchain scan, DevRadar + Claudefy install)'
         MenuTitle   = 'WINTRASH TOOLKIT'
-        MenuScan    = 'Full scan - 16 leftover types (read-only + HTML report)'
+        MenuScan    = 'Full scan - 18 leftover types (read-only + HTML report)'
         MenuClean   = 'Scan & CLEAN - pick items one by one with Space'
         MenuDl      = 'Organize Downloads (preview, pick groups, undo available)'
         MenuDevScan = '[Dev] Toolchain cache scan + clean orphan caches'
@@ -158,6 +160,8 @@ $i18n = @{
         MenuSwitch  = 'Change language / role'
         UpdateCheck = 'Checking for updates...'
         UpdateFound = 'New version {0} available (you have {1}). Update now? [y/N]'
+        UpdateWhatsNew = 'WHAT''S NEW in {0} (notes are in Vietnamese):'
+        UpdateMoreNotes = '... and {0} more lines - full notes: CHANGELOG.md on GitHub'
         UpdateDone  = 'Updated successfully - restarting...'
         UpdateFail  = 'Update failed: {0} - continuing with current version.'
         ElevateAsk  = '{0}/{1} items require Administrator. Open an Admin window to clean EVERYTHING? [y = elevate / n = clean what is possible now]'
@@ -190,7 +194,7 @@ $i18n = @{
         RoleUser    = '普通用户'
         RoleDev     = '开发者（额外：工具链扫描，安装 DevRadar + Claudefy）'
         MenuTitle   = 'WINTRASH TOOLKIT'
-        MenuScan    = '全面扫描 - 16 类残留（只读 + HTML 报告）'
+        MenuScan    = '全面扫描 - 18 类残留（只读 + HTML 报告）'
         MenuClean   = '扫描并清理 - 用空格键逐项选择'
         MenuDl      = '整理下载文件夹（预览、选组、可撤销）'
         MenuDevScan = '[Dev] 工具链缓存扫描 + 清理孤立缓存'
@@ -223,6 +227,8 @@ $i18n = @{
         MenuSwitch  = '更改语言 / 角色'
         UpdateCheck = '正在检查更新...'
         UpdateFound = '发现新版本 {0}（当前 {1}）。立即更新？[y/N]'
+        UpdateWhatsNew = '{0} 版本更新内容（越南语）：'
+        UpdateMoreNotes = '... 还有 {0} 行 - 完整内容见 GitHub 上的 CHANGELOG.md'
         UpdateDone  = '更新成功 - 正在重新启动...'
         UpdateFail  = '更新失败：{0} - 继续使用当前版本。'
         ElevateAsk  = '{0}/{1} 项需要管理员权限。打开管理员窗口清理全部？[y = 提权 / n = 仅清理当前可行的]'
@@ -255,7 +261,7 @@ $i18n = @{
         RoleUser    = 'Обычный пользователь'
         RoleDev     = 'Разработчик (плюс сканирование тулчейнов, DevRadar + Claudefy)'
         MenuTitle   = 'WINTRASH TOOLKIT'
-        MenuScan    = 'Полное сканирование - 16 типов остатков (только чтение + HTML)'
+        MenuScan    = 'Полное сканирование - 18 типов остатков (только чтение + HTML)'
         MenuClean   = 'Сканировать и ОЧИСТИТЬ - выбор пунктов пробелом'
         MenuDl      = 'Организация Downloads (предпросмотр, выбор групп, откат)'
         MenuDevScan = '[Dev] Кэши тулчейнов + очистка кэшей-сирот'
@@ -288,6 +294,8 @@ $i18n = @{
         MenuSwitch  = 'Сменить язык / роль'
         UpdateCheck = 'Проверка обновлений...'
         UpdateFound = 'Доступна новая версия {0} (у вас {1}). Обновить сейчас? [y/N]'
+        UpdateWhatsNew = 'ЧТО НОВОГО в версии {0} (описание на вьетнамском):'
+        UpdateMoreNotes = '... и ещё {0} строк - полный список: CHANGELOG.md на GitHub'
         UpdateDone  = 'Обновление выполнено - перезапуск...'
         UpdateFail  = 'Ошибка обновления: {0} - продолжаем с текущей версией.'
         ElevateAsk  = '{0}/{1} пунктов требуют прав администратора. Открыть окно администратора для полной очистки? [y / n = очистить возможное]'
@@ -1049,7 +1057,7 @@ function Add-Finding {
     })
 }
 
-# ════════════════════════ 16 MODULE QUÉT ════════════════════════
+# ════════════════════════ 18 MODULE QUÉT ════════════════════════
 
 function Invoke-ScanPath {
     foreach ($scope in 'Machine', 'User') {
@@ -1552,6 +1560,145 @@ function Invoke-ScanVendorReg {
     }
 }
 
+function Invoke-ScanDocker {
+    # Tàn dư Docker Desktop/CLI. Còn cài -> chỉ báo kho dữ liệu lớn + lệnh dọn chính chủ
+    # (Info, không cho xóa - giống DevTrash); đã gỡ -> thư mục dữ liệu và đăng ký WSL
+    # distro docker-desktop* là tàn dư. Service com.docker.service mất binary đã có
+    # module Services bắt, không lặp lại ở đây.
+    # Service docker/com.docker.service với binary CÒN SỐNG = Docker Engine đang cài
+    # (kể cả không có Desktop lẫn CLI trên PATH - ProgramData\Docker khi đó chứa image
+    # đang dùng, tuyệt đối không được coi là tàn dư); binary mất thì module Services
+    # đã bắt service, ở đây vẫn tính là "đã gỡ" để báo thư mục sót.
+    $svcAlive = $false
+    foreach ($s in @(Get-CimInstance Win32_Service -Filter "Name='docker' OR Name='com.docker.service'" -ErrorAction SilentlyContinue)) {
+        $exe = Resolve-CommandPath -CommandLine $s.PathName
+        if ($exe -and -not (Test-ExeMissing -ExePath $exe)) { $svcAlive = $true }
+    }
+    $dockerInstalled = $svcAlive -or
+                       (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe')) -or
+                       (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\Docker\Docker\Docker Desktop.exe')) -or
+                       (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop') -or
+                       (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop') -or
+                       ($null -ne (Get-Command docker -ErrorAction SilentlyContinue))
+    $dataDirs = @(
+        (Join-Path $env:APPDATA 'Docker'),
+        (Join-Path $env:APPDATA 'Docker Desktop'),
+        (Join-Path $env:LOCALAPPDATA 'Docker'),
+        (Join-Path $env:LOCALAPPDATA 'DockerDesktop'),
+        (Join-Path $env:ProgramData 'Docker'),
+        (Join-Path $env:ProgramData 'DockerDesktop'),
+        (Join-Path $env:USERPROFILE '.docker')
+    )
+    if ($dockerInstalled) {
+        # Đang cài: chỉ nhắc kho >= 1 GB (image/cache/vhdx) để dọn bằng lệnh chính chủ
+        foreach ($dir in $dataDirs) {
+            $size = Get-DirSizeMB -Path $dir
+            if ($size -lt 1024) { continue }
+            Add-Finding -Category 'Docker' -Name 'Kho dữ liệu Docker (đang cài)' -Target $dir -SizeMB $size `
+                -Detail 'Docker còn cài - KHÔNG xóa tay; dọn image/cache bằng: docker system prune (thêm -a nếu muốn xóa cả image chưa dùng)' `
+                -Severity 'Info'
+        }
+        return
+    }
+    foreach ($dir in $dataDirs) {
+        $size = Get-DirSizeMB -Path $dir
+        if ($size -lt 0) { continue }
+        Add-Finding -Category 'Docker' -Name (Split-Path $dir -Leaf) -Target $dir -SizeMB $size `
+            -Detail 'Docker đã gỡ nhưng thư mục dữ liệu còn lại - tàn dư, xóa an toàn' -Severity 'High' `
+            -RemoveKind 'RecycleDir' -RemoveData @{ Path = $dir }
+    }
+    # Thư mục cài đặt sót trong Program Files (exe chính đã mất nhưng folder còn)
+    $installDir = Join-Path $env:ProgramFiles 'Docker'
+    if (Test-Path -LiteralPath $installDir) {
+        Add-Finding -Category 'Docker' -Name 'Docker (Program Files)' -Target $installDir `
+            -SizeMB (Get-DirSizeMB -Path $installDir) `
+            -Detail 'Thư mục cài đặt còn sót sau khi gỡ Docker Desktop' -Severity 'High' `
+            -RemoveKind 'RecycleDir' -RemoveData @{ Path = $installDir }
+    }
+    # Đăng ký WSL distro docker-desktop* mồ côi (vhdx dữ liệu nằm trong LOCALAPPDATA\Docker
+    # đã báo ở trên - xóa key đăng ký tương đương wsl --unregister)
+    $lxss = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
+    if (Test-Path $lxss) {
+        foreach ($key in (Get-ChildItem -Path $lxss -ErrorAction SilentlyContinue)) {
+            $name = [string](Get-ItemProperty -Path $key.PSPath -ErrorAction SilentlyContinue).DistributionName
+            if ($name -notmatch '^docker-desktop') { continue }
+            Add-Finding -Category 'Docker' -Name ("WSL distro: {0}" -f $name) -Target ($lxss + '\' + $key.PSChildName) `
+                -Detail ("Đăng ký WSL distro của Docker Desktop đã gỡ (gỡ chuẩn: wsl --unregister {0} - xóa key này tương đương)" -f $name) `
+                -Severity 'High' -RemoveKind 'RegKey' -RemoveData @{ PSPath = ($lxss + '\' + $key.PSChildName) }
+        }
+    }
+}
+
+function Invoke-ScanWSL {
+    # Tàn dư WSL: đăng ký distro trỏ thư mục đã mất, dữ liệu distro (ext4.vhdx - có thể
+    # nhiều GB) không còn đăng ký, thư mục lxss legacy (WSL1 trước 1709). Distro đăng ký
+    # hợp lệ KHÔNG bị đụng tới. Distro docker-desktop* nhường module Docker xử lý.
+    $lxss = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
+    $registered = [System.Collections.Generic.List[string]]::new()
+    if (Test-Path $lxss) {
+        foreach ($key in (Get-ChildItem -Path $lxss -ErrorAction SilentlyContinue)) {
+            if ($key.PSChildName -notmatch '^\{[0-9A-Fa-f-]+\}$') { continue }   # distro luôn là subkey GUID
+            $props = Get-ItemProperty -Path $key.PSPath -ErrorAction SilentlyContinue
+            $name = [string]$props.DistributionName
+            if ($name -match '^docker-desktop') { continue }
+            $base = ([string]$props.BasePath) -replace '^\\\\\?\\', ''   # bỏ prefix \\?\ của distro mới
+            if ([string]::IsNullOrWhiteSpace($base)) { continue }
+            if (Test-Path -LiteralPath $base) {
+                $registered.Add($base.TrimEnd('\').ToLowerInvariant())
+            } else {
+                Add-Finding -Category 'WSL' -Name ("Distro mồ côi: {0}" -f $name) -Target $base `
+                    -Detail 'Đăng ký trong Lxss nhưng thư mục dữ liệu đã mất - distro hỏng, wsl không khởi động được nó nữa' `
+                    -RemoveKind 'RegKey' -RemoveData @{ PSPath = ($lxss + '\' + $key.PSChildName) }
+            }
+        }
+    }
+    # Dữ liệu distro trên đĩa mà WSL không còn đăng ký (unregister/gỡ sót lại vhdx)
+    $candidates = [System.Collections.Generic.List[object]]::new()
+    $wslRoot = Join-Path $env:LOCALAPPDATA 'wsl'
+    if (Test-Path -LiteralPath $wslRoot) {
+        foreach ($dir in (Get-ChildItem -LiteralPath $wslRoot -Directory -ErrorAction SilentlyContinue)) {
+            if (-not (Test-Path -LiteralPath (Join-Path $dir.FullName 'ext4.vhdx'))) { continue }
+            if ($registered -contains $dir.FullName.TrimEnd('\').ToLowerInvariant()) { continue }
+            $candidates.Add(@{ Remove = $dir.FullName; Pkg = $null })
+        }
+    }
+    $pkgRoot = Join-Path $env:LOCALAPPDATA 'Packages'
+    if (Test-Path -LiteralPath $pkgRoot) {
+        foreach ($pkg in (Get-ChildItem -LiteralPath $pkgRoot -Directory -ErrorAction SilentlyContinue)) {
+            $state = Join-Path $pkg.FullName 'LocalState'
+            if (-not (Test-Path -LiteralPath (Join-Path $state 'ext4.vhdx'))) { continue }
+            if ($registered -contains $state.TrimEnd('\').ToLowerInvariant()) { continue }
+            # Gói Store đã gỡ mà còn dữ liệu -> cả thư mục gói là tàn dư
+            $candidates.Add(@{ Remove = $pkg.FullName; Pkg = $pkg.Name })
+        }
+    }
+    if ($candidates.Count -gt 0) {
+        # Gói Store còn cài thì KHÔNG coi là tàn dư (app còn đó, chạy lại sẽ dùng tiếp);
+        # Get-AppxPackage lỗi (service tắt...) -> không xác định được -> bỏ qua nhóm gói cho an toàn
+        $families = $null
+        if (@($candidates | Where-Object { $_.Pkg }).Count -gt 0) {
+            try { $families = @((Get-AppxPackage -ErrorAction Stop).PackageFamilyName) } catch { $families = $null }
+        }
+        foreach ($c in $candidates) {
+            if ($c.Pkg) {
+                if ($null -eq $families) { continue }
+                if ($families -contains $c.Pkg) { continue }
+            }
+            Add-Finding -Category 'WSL' -Name 'Dữ liệu distro không còn đăng ký' -Target $c.Remove `
+                -SizeMB (Get-DirSizeMB -Path $c.Remove) `
+                -Detail 'Có ext4.vhdx nhưng WSL không đăng ký distro nào ở đây (unregister/gỡ sót) - xem kỹ trước khi xóa' `
+                -Severity 'Medium' -RemoveKind 'RecycleDir' -RemoveData @{ Path = $c.Remove }
+        }
+    }
+    # Thư mục WSL1 legacy (%LOCALAPPDATA%\lxss - kiến trúc cũ trước Windows 1709)
+    $legacy = Join-Path $env:LOCALAPPDATA 'lxss'
+    if ((Test-Path -LiteralPath $legacy) -and ($registered -notcontains $legacy.TrimEnd('\').ToLowerInvariant())) {
+        Add-Finding -Category 'WSL' -Name 'Thư mục WSL1 legacy (lxss)' -Target $legacy -SizeMB (Get-DirSizeMB -Path $legacy) `
+            -Detail 'Kiến trúc WSL1 cũ (trước Windows 1709) - WSL hiện tại không dùng; xem kỹ trước khi xóa' `
+            -Severity 'Medium' -RemoveKind 'RecycleDir' -RemoveData @{ Path = $legacy }
+    }
+}
+
 # ════════════════════════ DEV TRASH (Developer) ════════════════════════
 
 function Invoke-ScanDevTrash {
@@ -1870,7 +2017,9 @@ $scanModules = @(
     @{ Name = 'IFEO';      Fn = { Invoke-ScanIFEO } },
     @{ Name = 'NativeMsg'; Fn = { Invoke-ScanNativeMsg } },
     @{ Name = 'Protocols'; Fn = { Invoke-ScanProtocols } },
-    @{ Name = 'VendorReg'; Fn = { Invoke-ScanVendorReg } }
+    @{ Name = 'VendorReg'; Fn = { Invoke-ScanVendorReg } },
+    @{ Name = 'Docker';    Fn = { Invoke-ScanDocker } },
+    @{ Name = 'WSL';       Fn = { Invoke-ScanWSL } }
 )
 
 function Invoke-AllScans {
@@ -2327,6 +2476,38 @@ function Get-RemoteVersion {
     } catch { return $null }
 }
 
+function Get-RemoteChangelog {
+    # Đọc CHANGELOG.md trên GitHub - lỗi mạng thì trả null (bỏ qua êm, vẫn hỏi update)
+    try {
+        $resp = Invoke-WebRequest -Uri ($script:UpdateRawBase + '/CHANGELOG.md') -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+        return [string]$resp.Content
+    } catch { return $null }
+}
+
+function Get-ChangelogForUpdate {
+    # Trích từ CHANGELOG.md các mục có phiên bản NẰM TRONG (Current, Remote] - người dùng
+    # thấy đúng những gì mình sắp nhận, kể cả khi nhảy cóc nhiều bản. Hàm thuần túy để
+    # test không cần mạng; markdown rỗng/hỏng -> danh sách rỗng.
+    param([string]$Markdown, [version]$Current, [version]$Remote)
+    $out = [System.Collections.Generic.List[string]]::new()
+    if ([string]::IsNullOrWhiteSpace($Markdown)) { return $out }
+    $include = $false
+    foreach ($line in ($Markdown -split "`r?`n")) {
+        $m = [regex]::Match($line, '^##\s*\[(\d+(?:\.\d+){1,3})\]\s*(.*)$')
+        if ($m.Success) {
+            $v = $null
+            $include = [version]::TryParse($m.Groups[1].Value, [ref]$v) -and ($v -gt $Current) -and ($v -le $Remote)
+            if ($include) { $out.Add(('[{0}] {1}' -f $m.Groups[1].Value, $m.Groups[2].Value).TrimEnd()) }
+            continue
+        }
+        if (-not $include) { continue }
+        $clean = ($line -replace '\*\*', '').TrimEnd()
+        if ($clean -match '^###\s*(.+)$') { $out.Add($Matches[1] + ':'); continue }
+        if ($clean.Trim()) { $out.Add($clean) }
+    }
+    return $out
+}
+
 function Invoke-SelfUpdate {
     param([hashtable]$L)
     try {
@@ -2348,12 +2529,24 @@ function Invoke-SelfUpdate {
 }
 
 function Test-UpdatePrompt {
-    # Gọi sau khi chọn ngôn ngữ: có bản mới -> hỏi update/skip. Trả $true nếu đã update (cần restart).
+    # Gọi sau khi chọn ngôn ngữ: có bản mới -> hiện "có gì mới" rồi hỏi update/skip.
+    # Trả $true nếu đã update (cần restart).
     param([hashtable]$L)
     Write-C $L.UpdateCheck -Color DarkGray
     Write-Host ''
     $remote = Get-RemoteVersion
     if (-not $remote -or $remote -le $script:WinTrashVersion) { return $false }
+    # Có gì mới giữa bản đang dùng và bản mới - tải/parse lỗi thì bỏ qua êm, vẫn hỏi update
+    $notes = @(Get-ChangelogForUpdate -Markdown (Get-RemoteChangelog) -Current $script:WinTrashVersion -Remote $remote)
+    if ($notes.Count -gt 0) {
+        Write-C ($L.UpdateWhatsNew -f $remote) -Color Cyan
+        foreach ($line in ($notes | Select-Object -First 30)) {
+            $color = if ($line -match '^\[') { 'Yellow' } elseif ($line -match '^- ') { 'Gray' } else { 'DarkCyan' }
+            Write-Host ('  ' + $line) -ForegroundColor $color
+        }
+        if ($notes.Count -gt 30) { Write-Host ('  ' + ($L.UpdateMoreNotes -f ($notes.Count - 30))) -ForegroundColor DarkGray }
+        Write-Host ''
+    }
     $answer = Read-Host ($L.UpdateFound -f $remote, $script:WinTrashVersion)
     if ($answer -notmatch '^[yY]') { return $false }
     if (-not (Invoke-SelfUpdate -L $L)) { return $false }
