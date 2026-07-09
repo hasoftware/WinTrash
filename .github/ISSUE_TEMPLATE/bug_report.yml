@@ -13,7 +13,7 @@ body:
     attributes:
       label: Phiên bản WinTrash
       description: Hiện ở banner khi chạy script, hoặc mở file tìm dòng WinTrashVersion
-      placeholder: "1.2.2"
+      placeholder: "1.3.0"
     validations:
       required: true
   - type: dropdown

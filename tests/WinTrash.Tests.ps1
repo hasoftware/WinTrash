@@ -153,6 +153,34 @@ Phiên bản đầu tiên.
         ($r -join "`n") | Should -Match 'dòng thật'
         ($r -join "`n") | Should -Not -Match 'dòng rác'
     }
+    It 'section ## không phải phiên bản đặt SAU bản được chọn không lọt vào notes' {
+        $md2 = "## [1.5.0]`n- muc moi`n## [Unreleased]`n- chua phat hanh`n## Ghi chu`n- linh tinh"
+        $r = @(Get-ChangelogForUpdate -Markdown $md2 -Current ([version]'1.0') -Remote ([version]'2.0'))
+        ($r -join "`n") | Should -Match 'muc moi'
+        ($r -join "`n") | Should -Not -Match 'chua phat hanh'
+        ($r -join "`n") | Should -Not -Match 'linh tinh'
+    }
+    It 'dòng link-reference kiểu keep-a-changelog bị loại' {
+        $md3 = "## [1.5.0]`n- muc moi`n[1.5.0]: https://example.com/diff"
+        $r = @(Get-ChangelogForUpdate -Markdown $md3 -Current ([version]'1.0') -Remote ([version]'2.0'))
+        ($r -join "`n") | Should -Not -Match 'example.com'
+    }
+    It 'VERSION 2 thành phần vẫn khớp header 3 thành phần (1.4 vs [1.4.0])' {
+        $md4 = "## [1.4.0]`n- noi dung ban moi"
+        $r = @(Get-ChangelogForUpdate -Markdown $md4 -Current ([version]'1.3.0') -Remote ([version]'1.4'))
+        ($r -join "`n") | Should -Match 'noi dung ban moi'
+    }
+}
+
+Describe 'ConvertTo-PaddedVersion' {
+    It 'đủ 4 thành phần, thiếu điền 0' {
+        ConvertTo-PaddedVersion ([version]'1.4') | Should -Be ([version]'1.4.0.0')
+        ConvertTo-PaddedVersion ([version]'1.4.0') | Should -Be ([version]'1.4.0.0')
+        ConvertTo-PaddedVersion ([version]'2.0.1.7') | Should -Be ([version]'2.0.1.7')
+    }
+    It '1.4 và 1.4.0 so sánh bằng nhau sau chuẩn hóa' {
+        (ConvertTo-PaddedVersion ([version]'1.4')) -eq (ConvertTo-PaddedVersion ([version]'1.4.0')) | Should -BeTrue
+    }
 }
 
 Describe 'Danh sách module quét' {

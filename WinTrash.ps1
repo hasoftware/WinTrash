@@ -1118,7 +1118,8 @@ function Invoke-ScanFolders {
         'WindowsHolographicDevices', 'Application Data', 'Documents',
         'Start Menu', 'Desktop', 'Templates', 'CanonicalGroupLimited',
         'PackageManagement', 'GroupPolicy', 'dotnet', 'IsolatedStorage',
-        'AMD', 'NVIDIA', 'NVIDIA Corporation', 'Intel', 'InstallShield'
+        'AMD', 'NVIDIA', 'NVIDIA Corporation', 'Intel', 'InstallShield',
+        'Docker', 'DockerDesktop', 'Docker Desktop'   # module Docker chuyên trách - tránh trùng finding + đếm đôi MB
     )
     $fp = Get-AppFingerprint
     $scanRoots = [System.Collections.Generic.List[object]]::new()
@@ -1565,21 +1566,35 @@ function Invoke-ScanDocker {
     # (Info, không cho xóa - giống DevTrash); đã gỡ -> thư mục dữ liệu và đăng ký WSL
     # distro docker-desktop* là tàn dư. Service com.docker.service mất binary đã có
     # module Services bắt, không lặp lại ở đây.
-    # Service docker/com.docker.service với binary CÒN SỐNG = Docker Engine đang cài
+    # Hai tầng phát hiện: Desktop (exe/uninstall key) riêng, engine/CLI riêng.
+    # Service docker/com.docker.service với binary CÒN SỐNG = Docker Engine đang chạy
     # (kể cả không có Desktop lẫn CLI trên PATH - ProgramData\Docker khi đó chứa image
     # đang dùng, tuyệt đối không được coi là tàn dư); binary mất thì module Services
     # đã bắt service, ở đây vẫn tính là "đã gỡ" để báo thư mục sót.
+    $desktopInstalled = (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe')) -or
+                        (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\Docker\Docker\Docker Desktop.exe')) -or
+                        (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop') -or
+                        (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop')
     $svcAlive = $false
     foreach ($s in @(Get-CimInstance Win32_Service -Filter "Name='docker' OR Name='com.docker.service'" -ErrorAction SilentlyContinue)) {
         $exe = Resolve-CommandPath -CommandLine $s.PathName
         if ($exe -and -not (Test-ExeMissing -ExePath $exe)) { $svcAlive = $true }
     }
-    $dockerInstalled = $svcAlive -or
-                       (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe')) -or
-                       (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\Docker\Docker\Docker Desktop.exe')) -or
-                       (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop') -or
-                       (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Docker Desktop') -or
-                       ($null -ne (Get-Command docker -ErrorAction SilentlyContinue))
+    $dockerInstalled = $desktopInstalled -or $svcAlive -or ($null -ne (Get-Command docker -ErrorAction SilentlyContinue))
+    # Key Lxss docker-desktop* CHỈ do Docker Desktop tạo - Desktop đã gỡ thì chắc chắn
+    # là tàn dư, kể cả khi máy còn docker CLI standalone / Docker Engine khác
+    if (-not $desktopInstalled) {
+        $lxss = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
+        if (Test-Path $lxss) {
+            foreach ($key in (Get-ChildItem -Path $lxss -ErrorAction SilentlyContinue)) {
+                $name = [string](Get-ItemProperty -Path $key.PSPath -ErrorAction SilentlyContinue).DistributionName
+                if ($name -notmatch '^docker-desktop') { continue }
+                Add-Finding -Category 'Docker' -Name ("WSL distro: {0}" -f $name) -Target ($lxss + '\' + $key.PSChildName) `
+                    -Detail ("Đăng ký WSL distro của Docker Desktop đã gỡ - xóa key gỡ đăng ký khỏi wsl (backup .reg); nếu đang là distro mặc định, đặt lại bằng: wsl --set-default <tên>") `
+                    -Severity 'High' -RemoveKind 'RegKey' -RemoveData @{ PSPath = ($lxss + '\' + $key.PSChildName) }
+            }
+        }
+    }
     $dataDirs = @(
         (Join-Path $env:APPDATA 'Docker'),
         (Join-Path $env:APPDATA 'Docker Desktop'),
@@ -1590,7 +1605,7 @@ function Invoke-ScanDocker {
         (Join-Path $env:USERPROFILE '.docker')
     )
     if ($dockerInstalled) {
-        # Đang cài: chỉ nhắc kho >= 1 GB (image/cache/vhdx) để dọn bằng lệnh chính chủ
+        # Một dạng Docker vẫn hiện diện: chỉ nhắc kho >= 1 GB để dọn bằng lệnh chính chủ
         foreach ($dir in $dataDirs) {
             $size = Get-DirSizeMB -Path $dir
             if ($size -lt 1024) { continue }
@@ -1603,6 +1618,14 @@ function Invoke-ScanDocker {
     foreach ($dir in $dataDirs) {
         $size = Get-DirSizeMB -Path $dir
         if ($size -lt 0) { continue }
+        if ((Split-Path $dir -Leaf) -eq '.docker') {
+            # Cấu hình + credential: đăng nhập registry (auths), cert/key TLS, context tới
+            # engine từ xa - CLI chạy trong WSL/máy khác vẫn dùng được, không dám gọi "an toàn"
+            Add-Finding -Category 'Docker' -Name '.docker (cấu hình/credential)' -Target $dir -SizeMB $size `
+                -Detail 'Chứa đăng nhập registry, cert TLS, context engine từ xa - chỉ xóa nếu chắc chắn không còn dùng Docker ở bất kỳ dạng nào' `
+                -Severity 'Medium' -RemoveKind 'RecycleDir' -RemoveData @{ Path = $dir }
+            continue
+        }
         Add-Finding -Category 'Docker' -Name (Split-Path $dir -Leaf) -Target $dir -SizeMB $size `
             -Detail 'Docker đã gỡ nhưng thư mục dữ liệu còn lại - tàn dư, xóa an toàn' -Severity 'High' `
             -RemoveKind 'RecycleDir' -RemoveData @{ Path = $dir }
@@ -1614,18 +1637,6 @@ function Invoke-ScanDocker {
             -SizeMB (Get-DirSizeMB -Path $installDir) `
             -Detail 'Thư mục cài đặt còn sót sau khi gỡ Docker Desktop' -Severity 'High' `
             -RemoveKind 'RecycleDir' -RemoveData @{ Path = $installDir }
-    }
-    # Đăng ký WSL distro docker-desktop* mồ côi (vhdx dữ liệu nằm trong LOCALAPPDATA\Docker
-    # đã báo ở trên - xóa key đăng ký tương đương wsl --unregister)
-    $lxss = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss'
-    if (Test-Path $lxss) {
-        foreach ($key in (Get-ChildItem -Path $lxss -ErrorAction SilentlyContinue)) {
-            $name = [string](Get-ItemProperty -Path $key.PSPath -ErrorAction SilentlyContinue).DistributionName
-            if ($name -notmatch '^docker-desktop') { continue }
-            Add-Finding -Category 'Docker' -Name ("WSL distro: {0}" -f $name) -Target ($lxss + '\' + $key.PSChildName) `
-                -Detail ("Đăng ký WSL distro của Docker Desktop đã gỡ (gỡ chuẩn: wsl --unregister {0} - xóa key này tương đương)" -f $name) `
-                -Severity 'High' -RemoveKind 'RegKey' -RemoveData @{ PSPath = ($lxss + '\' + $key.PSChildName) }
-        }
     }
 }
 
@@ -1641,15 +1652,37 @@ function Invoke-ScanWSL {
             $props = Get-ItemProperty -Path $key.PSPath -ErrorAction SilentlyContinue
             $name = [string]$props.DistributionName
             if ($name -match '^docker-desktop') { continue }
-            $base = ([string]$props.BasePath) -replace '^\\\\\?\\', ''   # bỏ prefix \\?\ của distro mới
+            $base = [string]$props.BasePath
+            # Chuẩn hóa prefix đường dẫn dài: \\?\C:\... -> C:\..., \\?\UNC\srv\share -> \\srv\share
+            if ($base -match '^\\\\\?\\UNC\\') { $base = '\\' + $base.Substring(8) }
+            elseif ($base -match '^\\\\\?\\') { $base = $base.Substring(4) }
             if ([string]::IsNullOrWhiteSpace($base)) { continue }
             if (Test-Path -LiteralPath $base) {
                 $registered.Add($base.TrimEnd('\').ToLowerInvariant())
             } else {
-                Add-Finding -Category 'WSL' -Name ("Distro mồ côi: {0}" -f $name) -Target $base `
-                    -Detail 'Đăng ký trong Lxss nhưng thư mục dữ liệu đã mất - distro hỏng, wsl không khởi động được nó nữa' `
-                    -RemoveKind 'RegKey' -RemoveData @{ PSPath = ($lxss + '\' + $key.PSChildName) }
+                # Cả Ổ ĐĨA không thấy (USB/ổ ngoài chưa cắm, BitLocker chưa mở khóa, share
+                # mất mạng - hay gặp với distro wsl --import chuyển khỏi ổ C) thì distro có
+                # thể vẫn sống -> KHÔNG kết luận mồ côi, chỉ báo Info không cho xóa
+                $driveRoot = $null
+                try { $driveRoot = [System.IO.Path]::GetPathRoot($base) } catch {}
+                if ($driveRoot -and -not (Test-Path -LiteralPath $driveRoot)) {
+                    Add-Finding -Category 'WSL' -Name ("Distro trên ổ không truy cập được: {0}" -f $name) -Target $base `
+                        -Detail 'Ổ đĩa chứa distro hiện không thấy (chưa cắm? BitLocker khóa?) - không kết luận gì, không xóa' `
+                        -Severity 'Info'
+                } else {
+                    Add-Finding -Category 'WSL' -Name ("Distro mồ côi: {0}" -f $name) -Target $base `
+                        -Detail 'Đăng ký trong Lxss nhưng thư mục dữ liệu đã mất (ổ đĩa vẫn truy cập được) - distro hỏng, wsl không khởi động được nó nữa' `
+                        -RemoveKind 'RegKey' -RemoveData @{ PSPath = ($lxss + '\' + $key.PSChildName) }
+                }
             }
+        }
+        # Con trỏ distro mặc định trỏ GUID không còn đăng ký -> lệnh `wsl` trần sẽ lỗi
+        # cho tới khi người dùng tự đặt lại (chỉ báo, không tự sửa)
+        $defaultGuid = [string](Get-ItemProperty -Path $lxss -ErrorAction SilentlyContinue).DefaultDistribution
+        if ($defaultGuid -and -not (Test-Path ($lxss + '\' + $defaultGuid))) {
+            Add-Finding -Category 'WSL' -Name 'DefaultDistribution trỏ distro không tồn tại' -Target ($lxss + '\DefaultDistribution') `
+                -Detail ("Con trỏ default = {0} nhưng không còn đăng ký nào như vậy - đặt lại bằng: wsl --set-default <tên distro>" -f $defaultGuid) `
+                -Severity 'Info'
         }
     }
     # Dữ liệu distro trên đĩa mà WSL không còn đăng ký (unregister/gỡ sót lại vhdx)
@@ -1674,10 +1707,19 @@ function Invoke-ScanWSL {
     }
     if ($candidates.Count -gt 0) {
         # Gói Store còn cài thì KHÔNG coi là tàn dư (app còn đó, chạy lại sẽ dùng tiếp);
-        # Get-AppxPackage lỗi (service tắt...) -> không xác định được -> bỏ qua nhóm gói cho an toàn
+        # Get-AppxPackage lỗi (thiếu module Appx trên pwsh, chính sách chặn WinPSCompat...)
+        # -> không xác định được -> bỏ qua nhóm gói cho an toàn NHƯNG báo Info để kết quả
+        # quét giữa 2 engine không lệch nhau âm thầm
         $families = $null
-        if (@($candidates | Where-Object { $_.Pkg }).Count -gt 0) {
+        $pkgCandidates = @($candidates | Where-Object { $_.Pkg })
+        if ($pkgCandidates.Count -gt 0) {
             try { $families = @((Get-AppxPackage -ErrorAction Stop).PackageFamilyName) } catch { $families = $null }
+            if ($null -eq $families) {
+                Add-Finding -Category 'WSL' -Name 'Không xác định được trạng thái gói Store' `
+                    -Target ("{0} thư mục có ext4.vhdx trong Packages" -f $pkgCandidates.Count) `
+                    -Detail 'Get-AppxPackage lỗi - bỏ qua nhóm này cho an toàn; quét lại bằng Windows PowerShell 5.1 để kiểm tra đầy đủ' `
+                    -Severity 'Info'
+            }
         }
         foreach ($c in $candidates) {
             if ($c.Pkg) {
@@ -1822,13 +1864,25 @@ function Remove-SelectedFindings {
                     $deferOrSkip = $true   # xử lý gộp ở cuối
                 }
                 'RecycleDir' {
-                    try {
-                        [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($f.RemoveData.Path, 'OnlyErrorDialogs', 'SendToRecycleBin')
-                    } catch {
-                        # API Recycle Bin dở chứng (vd: "not supported") -> chuyển cả thư mục
-                        # vào thư mục backup của lần dọn này (vẫn hoàn tác được)
+                    # Thư mục vượt quota Recycle Bin bị shell xóa VĨNH VIỄN, im lặng, KHÔNG
+                    # exception (OnlyErrorDialogs = FOF_NOCONFIRMATION) -> vhdx Docker/WSL hàng
+                    # chục GB sẽ mất trắng. Thư mục lớn chuyển thẳng vào backup của lần dọn:
+                    # cùng volume là rename tức thì, khác volume MoveDirectory tự copy+xóa
+                    # (chậm nhưng giữ đúng lời hứa "mọi xóa đều backup").
+                    $dirSizeMB = if ($f.SizeMB -gt 0) { $f.SizeMB } else { Get-DirSizeMB -Path $f.RemoveData.Path }
+                    if ($dirSizeMB -gt 4096) {
                         $destDir = Join-Path $backupDir ("dir_{0}_{1}" -f $idx, (Split-Path $f.RemoveData.Path -Leaf))
-                        Move-Item -LiteralPath $f.RemoveData.Path -Destination $destDir -Force -ErrorAction Stop
+                        [Microsoft.VisualBasic.FileIO.FileSystem]::MoveDirectory($f.RemoveData.Path, $destDir)
+                    } else {
+                        try {
+                            [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($f.RemoveData.Path, 'OnlyErrorDialogs', 'SendToRecycleBin')
+                        } catch {
+                            # API Recycle Bin dở chứng (vd: "not supported") -> chuyển cả thư mục
+                            # vào backup của lần dọn (vẫn hoàn tác được). Dùng MoveDirectory của VB
+                            # vì Move-Item với THƯ MỤC không đi qua volume khác được trên PS 5.1
+                            $destDir = Join-Path $backupDir ("dir_{0}_{1}" -f $idx, (Split-Path $f.RemoveData.Path -Leaf))
+                            [Microsoft.VisualBasic.FileIO.FileSystem]::MoveDirectory($f.RemoveData.Path, $destDir)
+                        }
                     }
                     if (Test-Path -LiteralPath $f.RemoveData.Path) { throw 'Thư mục vẫn còn (bị khóa?)' }
                 }
@@ -2484,6 +2538,14 @@ function Get-RemoteChangelog {
     } catch { return $null }
 }
 
+function ConvertTo-PaddedVersion {
+    # Chuẩn hóa [version] đủ 4 thành phần (1.4 == 1.4.0 == 1.4.0.0) - so sánh System.Version
+    # thô coi 1.4.0 > 1.4 (build 0 > build -1), làm rơi entry changelog khi VERSION và
+    # header lệch số thành phần
+    param([version]$V)
+    return [version]::new($V.Major, [Math]::Max(0, $V.Minor), [Math]::Max(0, $V.Build), [Math]::Max(0, $V.Revision))
+}
+
 function Get-ChangelogForUpdate {
     # Trích từ CHANGELOG.md các mục có phiên bản NẰM TRONG (Current, Remote] - người dùng
     # thấy đúng những gì mình sắp nhận, kể cả khi nhảy cóc nhiều bản. Hàm thuần túy để
@@ -2491,18 +2553,28 @@ function Get-ChangelogForUpdate {
     param([string]$Markdown, [version]$Current, [version]$Remote)
     $out = [System.Collections.Generic.List[string]]::new()
     if ([string]::IsNullOrWhiteSpace($Markdown)) { return $out }
+    $curN = ConvertTo-PaddedVersion $Current
+    $remN = ConvertTo-PaddedVersion $Remote
     $include = $false
     foreach ($line in ($Markdown -split "`r?`n")) {
         $m = [regex]::Match($line, '^##\s*\[(\d+(?:\.\d+){1,3})\]\s*(.*)$')
         if ($m.Success) {
             $v = $null
-            $include = [version]::TryParse($m.Groups[1].Value, [ref]$v) -and ($v -gt $Current) -and ($v -le $Remote)
+            $include = [version]::TryParse($m.Groups[1].Value, [ref]$v)
+            if ($include) {
+                $vN = ConvertTo-PaddedVersion $v
+                $include = ($vN -gt $curN) -and ($vN -le $remN)
+            }
             if ($include) { $out.Add(('[{0}] {1}' -f $m.Groups[1].Value, $m.Groups[2].Value).TrimEnd()) }
             continue
         }
+        # Header h2 KHÁC ([Unreleased], ghi chú tự do...) là ranh giới section mới ->
+        # ngắt gom, nếu không nội dung của nó lọt nhầm vào bản phía trên
+        if ($line -match '^##($|[^#])') { $include = $false; continue }
         if (-not $include) { continue }
         $clean = ($line -replace '\*\*', '').TrimEnd()
-        if ($clean -match '^###\s*(.+)$') { $out.Add($Matches[1] + ':'); continue }
+        if ($clean -match '^#{3,}\s*(.*)$') { if ($Matches[1]) { $out.Add($Matches[1].Trim() + ':') }; continue }
+        if ($clean -match '^\[[^\]]+\]:') { continue }   # dòng link-reference kiểu keep-a-changelog
         if ($clean.Trim()) { $out.Add($clean) }
     }
     return $out
@@ -2541,6 +2613,9 @@ function Test-UpdatePrompt {
     if ($notes.Count -gt 0) {
         Write-C ($L.UpdateWhatsNew -f $remote) -Color Cyan
         foreach ($line in ($notes | Select-Object -First 30)) {
+            # Bullet trong CHANGELOG có thể dài 500-700 ký tự - cắt bớt để 30 dòng logic
+            # không tràn thành hàng trăm dòng vật lý trên console hẹp
+            if ($line.Length -gt 160) { $line = $line.Substring(0, 159) + '…' }
             $color = if ($line -match '^\[') { 'Yellow' } elseif ($line -match '^- ') { 'Gray' } else { 'DarkCyan' }
             Write-Host ('  ' + $line) -ForegroundColor $color
         }
