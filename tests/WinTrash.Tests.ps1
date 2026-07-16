@@ -191,6 +191,150 @@ Describe 'Danh sách module quét' {
     }
 }
 
+Describe 'Select-RamAppCandidates' {
+    It 'chỉ lấy tiến trình có cửa sổ, loại shell/console-host và chính mình' {
+        $procs = @(
+            [PSCustomObject]@{ Id = 100; ProcessName = 'notepad';         MainWindowHandle = [IntPtr]123 },
+            [PSCustomObject]@{ Id = 101; ProcessName = 'chrome';          MainWindowHandle = [IntPtr]456 },
+            [PSCustomObject]@{ Id = 102; ProcessName = 'svchost';         MainWindowHandle = [IntPtr]::Zero },
+            [PSCustomObject]@{ Id = 103; ProcessName = 'explorer';        MainWindowHandle = [IntPtr]789 },
+            [PSCustomObject]@{ Id = 104; ProcessName = 'WindowsTerminal'; MainWindowHandle = [IntPtr]11 },
+            [PSCustomObject]@{ Id = 105; ProcessName = 'paint';           MainWindowHandle = [IntPtr]::Zero },
+            [PSCustomObject]@{ Id = 999; ProcessName = 'code';            MainWindowHandle = [IntPtr]22 }
+        )
+        $r = @(Select-RamAppCandidates -Processes $procs -SelfId 999)
+        @($r | ForEach-Object { $_.Id }) | Should -Be @(100, 101)
+    }
+    It 'danh sách rỗng không ném lỗi' {
+        @(Select-RamAppCandidates -Processes @() -SelfId 1) | Should -HaveCount 0
+    }
+}
+
+Describe 'Bảng i18n' {
+    It '4 ngôn ngữ có cùng tập khóa chuỗi (không được thiếu chuỗi ở ngôn ngữ nào)' {
+        $viKeys = (@($i18n.vi.Keys) | Sort-Object) -join ','
+        foreach ($lang in 'en', 'zh', 'ru') {
+            (@($i18n[$lang].Keys) | Sort-Object) -join ',' | Should -Be $viKeys -Because "ngôn ngữ '$lang' phải đủ khóa như 'vi'"
+        }
+    }
+}
+
+Describe 'Limit-LicText' {
+    It 'chuỗi ngắn giữ nguyên' {
+        Limit-LicText -Text 'hello' | Should -Be 'hello'
+    }
+    It 'gộp khoảng trắng thừa và trim' {
+        Limit-LicText -Text "  a`t`tb   c  " | Should -Be 'a b c'
+    }
+    It 'cắt chuỗi dài kèm dấu …' {
+        $r = Limit-LicText -Text ('x' * 200) -Max 50
+        $r.Length | Should -Be 50
+        $r | Should -Match '…$'
+    }
+}
+
+Describe 'Test-LicKms38' {
+    BeforeAll {
+        function New-KmsProduct([double]$Minutes) {
+            [PSCustomObject]@{
+                Name = 'Windows(R), Professional edition'
+                LicenseStatus = 1
+                Description = 'Windows(R) Operating System, VOLUME_KMSCLIENT channel'
+                GracePeriodRemaining = $Minutes
+            }
+        }
+    }
+    It 'không có giấy phép KMS nào -> hợp lệ' {
+        (Test-LicKms38 -Products @()).Bad | Should -BeFalse
+    }
+    It 'giấy phép Retail (không phải KMSCLIENT) -> hợp lệ' {
+        $p = [PSCustomObject]@{ Name = 'Windows(R), Pro'; LicenseStatus = 1
+            Description = 'Windows(R) Operating System, RETAIL channel'; GracePeriodRemaining = 0 }
+        (Test-LicKms38 -Products @($p)).Bad | Should -BeFalse
+    }
+    It 'hạn KMS 180 ngày chuẩn -> hợp lệ' {
+        (Test-LicKms38 -Products @(New-KmsProduct 259200)).Bad | Should -BeFalse
+    }
+    It 'hạn KMS đẩy tới ~2038 -> phát hiện KMS38' {
+        (Test-LicKms38 -Products @(New-KmsProduct 6300000)).Bad | Should -BeTrue
+    }
+    It 'kích hoạt vĩnh viễn trên kênh KMS -> không hợp lệ (TSforge)' {
+        (Test-LicKms38 -Products @(New-KmsProduct 0)).Bad | Should -BeTrue
+    }
+}
+
+Describe 'Test-LicChannelBios' {
+    BeforeAll {
+        function New-OsProduct([string]$Channel, [string]$Desc) {
+            [PSCustomObject]@{ Name = 'Windows(R), Professional edition'; LicenseStatus = 1
+                ProductKeyChannel = $Channel; Description = $Desc }
+        }
+        $svcWithOem = [PSCustomObject]@{
+            OA3xOriginalProductKey = 'XXXXX-XXXXX-XXXXX-XXXXX-XXXXX'
+            OA3xOriginalProductKeyDescription = 'Win 11 RTM Core OEM:DM'
+        }
+        $svcNoOem = [PSCustomObject]@{ OA3xOriginalProductKey = ''; OA3xOriginalProductKeyDescription = '' }
+    }
+    It 'BIOS có key OEM nhưng kích hoạt kênh Volume -> không hợp lệ' {
+        $os = New-OsProduct 'Volume:GVLK' 'Windows(R) Operating System, VOLUME_KMSCLIENT channel'
+        (Test-LicChannelBios -Products @($os) -Service $svcWithOem -PartOfDomain $false).Bad | Should -BeTrue
+    }
+    It 'kênh Volume trên máy ngoài domain -> không hợp lệ' {
+        $os = New-OsProduct 'Volume:GVLK' 'Windows(R) Operating System, VOLUME_KMSCLIENT channel'
+        (Test-LicChannelBios -Products @($os) -Service $svcNoOem -PartOfDomain $false).Bad | Should -BeTrue
+    }
+    It 'kênh Volume trong domain công ty -> hợp lệ' {
+        $os = New-OsProduct 'Volume:GVLK' 'Windows(R) Operating System, VOLUME_KMSCLIENT channel'
+        (Test-LicChannelBios -Products @($os) -Service $svcNoOem -PartOfDomain $true).Bad | Should -BeFalse
+    }
+    It 'kênh Retail không BIOS key -> hợp lệ' {
+        $os = New-OsProduct 'Retail' 'Windows(R) Operating System, RETAIL channel'
+        (Test-LicChannelBios -Products @($os) -Service $svcNoOem -PartOfDomain $false).Bad | Should -BeFalse
+    }
+    It 'kênh OEM khớp BIOS key -> hợp lệ' {
+        $os = New-OsProduct 'OEM:DM' 'Windows(R) Operating System, OEM_DM channel'
+        (Test-LicChannelBios -Products @($os) -Service $svcWithOem -PartOfDomain $false).Bad | Should -BeFalse
+    }
+    It 'thiếu ProductKeyChannel -> rơi về đọc kênh từ Description' {
+        $os = [PSCustomObject]@{ Name = 'Windows(R), Pro'; LicenseStatus = 1
+            Description = 'Windows(R) Operating System, VOLUME_KMSCLIENT channel' }
+        (Test-LicChannelBios -Products @($os) -Service $svcNoOem -PartOfDomain $false).Bad | Should -BeTrue
+    }
+    It 'không có giấy phép hoạt động -> không báo xấu, không ném lỗi' {
+        (Test-LicChannelBios -Products @() -Service $svcNoOem -PartOfDomain $false).Bad | Should -BeFalse
+    }
+}
+
+Describe 'Get-LicVerdict' {
+    It 'SLWGA chính hãng + đã kích hoạt + 0 phát hiện -> genuine' {
+        Get-LicVerdict -GenuineState 0 -LicenseStatus 1 -BadCount 0 | Should -Be 'genuine'
+    }
+    It 'chính hãng nhưng còn dấu vết tool lậu -> traces' {
+        Get-LicVerdict -GenuineState 0 -LicenseStatus 1 -BadCount 3 | Should -Be 'traces'
+    }
+    It 'giấy phép bị can thiệp (Tampered) -> not-genuine kể cả khi LicenseStatus = 1' {
+        Get-LicVerdict -GenuineState 2 -LicenseStatus 1 -BadCount 0 | Should -Be 'not-genuine'
+    }
+    It 'giấy phép không hợp lệ (Invalid) -> not-genuine' {
+        Get-LicVerdict -GenuineState 1 -LicenseStatus 1 -BadCount 0 | Should -Be 'not-genuine'
+    }
+    It 'chưa kích hoạt (Notification) -> not-genuine' {
+        Get-LicVerdict -GenuineState 3 -LicenseStatus 5 -BadCount 0 | Should -Be 'not-genuine'
+    }
+    It 'SLWGA offline nhưng đã kích hoạt -> rơi về trạng thái kích hoạt = genuine' {
+        Get-LicVerdict -GenuineState 3 -LicenseStatus 1 -BadCount 0 | Should -Be 'genuine'
+    }
+    It 'API lỗi nhưng đã kích hoạt + có dấu vết -> traces' {
+        Get-LicVerdict -GenuineState -1 -LicenseStatus 1 -BadCount 1 | Should -Be 'traces'
+    }
+    It 'SLWGA chính hãng nhưng không đọc được WMI (status -1) -> tin SLWGA = genuine' {
+        Get-LicVerdict -GenuineState 0 -LicenseStatus -1 -BadCount 0 | Should -Be 'genuine'
+    }
+    It 'không đọc được cả hai nguồn -> not-genuine (an toàn)' {
+        Get-LicVerdict -GenuineState -1 -LicenseStatus -1 -BadCount 0 | Should -Be 'not-genuine'
+    }
+}
+
 Describe 'Regression issue #1: cấm GetNewClosure' {
     It 'WinTrash.ps1 không chứa lời gọi .GetNewClosure()' {
         # GetNewClosure buộc scriptblock vào dynamic module; tra cứu lệnh trong module

@@ -80,6 +80,8 @@ Báo cáo HTML xuất kèm sau mỗi lần quét:
 - **So sánh lịch sử**: mỗi lần quét lưu snapshot vào `ScanHistory\` (giữ 12 bản) và báo *"+N mục mới, M mục biến mất so với lần quét trước"* — biến tool thành máy giám sát sức khỏe hệ thống.
 - **Dọn Temp an toàn** (`-Action temp`): chỉ xóa file cũ hơn 24 giờ trong User Temp / Windows Temp / CrashDumps, file đang bị khóa tự bỏ qua.
 - **Lịch quét hàng tháng** (`-Action schedule`): tạo/xóa Scheduled Task tự chạy quét ngày 1 hằng tháng.
+- **Dọn RAM** (`-Action ram`): hai chế độ. **Nhẹ nhàng** — nén working set các tiến trình + xả standby cache (cần admin cho phần cache, như RAMMap), không đóng ứng dụng nào. **Bất chấp** — thêm bước chọn ứng dụng muốn đóng bằng checkbox: đóng lịch sự trước (app kịp hỏi lưu), app không chịu đóng phải được bạn đồng ý thêm một lần nữa mới bị buộc dừng. Hiện RAM trống trước/sau.
+- **Kiểm tra bản quyền Windows** (`-Action license`): kiểm toán **chỉ đọc**, không thay đổi gì trên máy. Phần 1 — **xác minh chính hãng**: gọi API chính chủ Microsoft (`SLIsGenuineLocal`) + trạng thái kích hoạt WMI + key OEM trong BIOS, hiện bảng tình trạng bản quyền đầy đủ. Phần 2 — **8 hạng mục phát hiện can thiệp**: cấu hình máy chủ KMS lậu, dấu vết MAS/HWID trong lịch sử dòng lệnh, hạn kích hoạt bất thường kiểu KMS38, đối chiếu kênh cấp phép với BIOS, thư mục tool lậu (KMSpico/KMSAuto...), task gia hạn lậu trong Task Scheduler, khóa registry chặn kiểm tra bản quyền (`NoGenTicket`, `sppsvc` bị vô hiệu, IFEO), tệp hosts chặn máy chủ kích hoạt / kết nối cổng KMS 1688. Kết luận 3 mức: **CHÍNH HÃNG** / chính hãng nhưng còn dấu vết tool lậu / **chưa có bản quyền hợp lệ** — kèm chỉ dẫn mua bản quyền từ nguồn chính thức của Microsoft và lưu ý pháp lý Việt Nam (NĐ 341/2025/NĐ-CP).
 
 ## Sắp xếp Downloads
 

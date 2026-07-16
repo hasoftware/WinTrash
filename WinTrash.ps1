@@ -23,7 +23,8 @@
     User | Developer - bỏ qua bước hỏi vai trò.
 
 .PARAMETER Action
-    Chạy thẳng: scan | clean | downloads | devscan | install-devradar | install-claudefy
+    Chạy thẳng: scan | clean | downloads | temp | restore | schedule | ram | license | devscan |
+    install-devradar | install-claudefy (ram không tương tác luôn chạy chế độ nhẹ)
 
 .EXAMPLE
     .\WinTrash.ps1
@@ -39,7 +40,7 @@ param(
     [string]$Language,
     [ValidateSet('User', 'Developer')]
     [string]$Role,
-    [ValidateSet('scan', 'clean', 'downloads', 'devscan', 'install-devradar', 'install-claudefy', 'restore', 'temp', 'schedule', 'clean-resume')]
+    [ValidateSet('scan', 'clean', 'downloads', 'devscan', 'install-devradar', 'install-claudefy', 'restore', 'temp', 'schedule', 'clean-resume', 'ram', 'license')]
     [string]$Action
 )
 
@@ -49,7 +50,7 @@ $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
-$script:WinTrashVersion = [version]'1.3.0'
+$script:WinTrashVersion = [version]'1.5.0'
 $script:UpdateRawBase = 'https://raw.githubusercontent.com/hasoftware/WinTrash/main'
 
 # ════════════════════════════ I18N ════════════════════════════
@@ -120,6 +121,71 @@ $i18n = @{
         DlDone      = 'Đã sắp xếp {0} file. Hoàn tác: {1}'
         ReportSaved = 'Báo cáo HTML: {0}'
         NoteVi      = 'Ghi chú: chi tiết kỹ thuật của báo cáo hiện bằng tiếng Việt.'
+        MenuRam     = 'Dọn RAM (nhẹ nhàng / bất chấp)'
+        RamTitle    = 'DỌN RAM - chọn chế độ'
+        RamStatus   = 'RAM trống: {0:N0} MB / {1:N0} MB tổng'
+        RamModeDeep = 'BẤT CHẤP - đóng ứng dụng bạn chọn rồi dọn sâu (cẩn thận dữ liệu chưa lưu)'
+        RamModeSoft = 'NHẸ NHÀNG - chỉ dọn rác RAM (nén working set, xả cache chờ), KHÔNG đóng ứng dụng'
+        RamKillWarn = 'CẢNH BÁO: đóng ứng dụng có thể mất dữ liệu chưa lưu. App được đóng LỊCH SỰ trước (kịp hỏi lưu); chỉ buộc dừng nếu bạn đồng ý thêm một lần nữa.'
+        RamPickTitle= 'CHỌN ỨNG DỤNG MUỐN ĐÓNG (chưa đóng gì cho tới khi bạn xác nhận)'
+        RamKillConfirm = 'Đóng {0} ứng dụng đã chọn? [y/N]'
+        RamClosed   = 'Đã đóng lịch sự {0} ứng dụng.'
+        RamForceAsk = '{0} ứng dụng chưa tự đóng ({1}). BUỘC DỪNG ngay - mất dữ liệu chưa lưu? [y/N]'
+        RamForceDone= 'Đã buộc dừng {0} ứng dụng.'
+        RamNoApps   = 'Không có ứng dụng cửa sổ nào để đóng.'
+        RamCleaning = 'Đang dọn rác RAM'
+        RamNeedAdmin= 'Chưa chạy Administrator - chỉ nén được working set của tiến trình truy cập được; xả standby cache cần quyền admin.'
+        RamSwept    = 'Đã nén working set của {0} tiến trình ({1} tiến trình không truy cập được).'
+        RamPurged   = 'Đã xả standby cache + trang modified của hệ thống (quyền admin).'
+        RamDone     = 'RAM trống: {0:N0} MB -> {1:N0} MB (chênh lệch {2:+#,0;-#,0;0} MB).'
+        MenuLicense = 'Kiểm tra bản quyền Windows (phát hiện KMS lậu / MAS / HWID)'
+        LicTitle    = 'KIỂM TRA BẢN QUYỀN WINDOWS - chỉ đọc, không thay đổi gì'
+        LicRunning  = 'Đang kiểm tra bản quyền Windows'
+        LicDetected    = 'PHÁT HIỆN'
+        LicNotDetected = 'KHÔNG PHÁT HIỆN'
+        LicValid    = 'HỢP LỆ'
+        LicInvalid  = 'KHÔNG HỢP LỆ'
+        LicClean    = 'Lịch sử dòng lệnh sạch'
+        LicNotClean = 'Lịch sử dòng lệnh KHÔNG sạch'
+        LicSummaryClean = 'Kết luận: {0}/{1} hạng mục sạch - không thấy dấu hiệu bẻ khóa bản quyền.'
+        LicSummaryBad   = 'Kết luận: {0}/{1} hạng mục có dấu hiệu bẻ khóa / can thiệp bản quyền.'
+        LicNeedAdmin = '(mẹo: chạy bằng Administrator để kiểm tra đầy đủ hơn - dịch vụ, task hệ thống)'
+        Lic1 = 'KMS Crack - cấu hình máy chủ KMS lậu'
+        Lic2 = 'MAS / HWID - lịch sử dòng lệnh'
+        Lic3 = 'KMS38 Hook - cấu trúc thời hạn kích hoạt'
+        Lic4 = 'Logic bản quyền - đối chiếu kênh cấp phép và BIOS'
+        Lic5 = 'Thư mục tool lậu - KMSpico / KMSAuto / KMS Online'
+        Lic6 = 'Tác vụ ẩn - task gia hạn lậu trong Task Scheduler'
+        Lic7 = 'Can thiệp Registry - khóa chặn kiểm tra bản quyền'
+        Lic8 = 'Kết nối máy chủ không an toàn - hosts + cổng KMS 1688'
+        LicGenTitle  = 'TÌNH TRẠNG BẢN QUYỀN - xác minh chính hãng'
+        LicEdition   = 'Phiên bản Windows'
+        LicActStatus = 'Trạng thái kích hoạt'
+        LicGenVerify = 'Xác minh Microsoft (SLWGA)'
+        LicChannel   = 'Kênh cấp phép'
+        LicBiosKey   = 'Key OEM trong BIOS (OA3)'
+        LicSt0 = 'Chưa có giấy phép (Unlicensed)'
+        LicSt1 = 'Đã kích hoạt (Licensed)'
+        LicSt2 = 'Chưa kích hoạt - đang hạn dùng ban đầu (OOB Grace)'
+        LicSt3 = 'Cần kích hoạt lại - thay đổi phần cứng (OOT Grace)'
+        LicSt4 = 'KHÔNG chính hãng - đang hạn ân hạn (Non-Genuine Grace)'
+        LicSt5 = 'Chế độ thông báo - kích hoạt không hợp lệ (Notification)'
+        LicSt6 = 'Hạn ân hạn mở rộng (Extended Grace)'
+        LicGenGenuine  = 'CHÍNH HÃNG - giấy phép nguyên vẹn'
+        LicGenInvalid  = 'KHÔNG CHÍNH HÃNG - giấy phép không hợp lệ'
+        LicGenTampered = 'KHÔNG CHÍNH HÃNG - giấy phép bị can thiệp (Tampered)'
+        LicGenOffline  = 'Chưa xác minh được (offline) - dựa theo trạng thái kích hoạt'
+        LicGenApiFail  = 'Không gọi được API xác minh - dựa theo trạng thái kích hoạt'
+        LicOemYes = 'Có ({0}) - máy xuất xưởng kèm bản quyền Windows'
+        LicOemNo  = 'Không - máy không kèm bản quyền OEM'
+        LicUnknown = 'Không xác định'
+        LicVerdictGenuine    = 'Windows của bạn là bản quyền CHÍNH HÃNG - yên tâm sử dụng.'
+        LicVerdictTraces     = 'Windows đã kích hoạt chính hãng NHƯNG còn dấu vết công cụ bẻ khóa (mục đỏ ở trên) - nên gỡ sạch để tránh rủi ro bảo mật và pháp lý.'
+        LicVerdictNotGenuine = 'Windows CHƯA có bản quyền hợp lệ - cân nhắc mua bản quyền chính hãng để tránh rủi ro pháp lý và bảo mật.'
+        LicBuy1 = 'Mua chính hãng tại nguồn chính thức của Microsoft: microsoft.com/vi-vn (Microsoft Store), hoặc dùng bản Windows cài sẵn theo máy của nhà sản xuất.'
+        LicBuy2 = 'Cảnh giác key giá rẻ bất thường (vài chục ~ vài trăm nghìn đồng): thường là key OEM/volume trôi nổi, có thể bị Microsoft thu hồi bất cứ lúc nào.'
+        LicBuy3 = 'Tự kiểm tra nhanh trong Windows: Settings > System > Activation.'
+        LicLawVN = 'Lưu ý pháp lý (Việt Nam): dùng phần mềm không bản quyền có thể bị xử phạt theo NĐ 131/2013/NĐ-CP và NĐ 341/2025/NĐ-CP (hiệu lực 15/02/2026); tổ chức vi phạm có thể bị phạt tới hàng trăm triệu đồng.'
     }
     en = @{
         ChooseLang  = 'Chọn ngôn ngữ / Choose language / 选择语言 / Выберите язык:'
@@ -187,6 +253,71 @@ $i18n = @{
         DlDone      = 'Organized {0} files. Undo: {1}'
         ReportSaved = 'HTML report: {0}'
         NoteVi      = 'Note: technical report details are currently in Vietnamese.'
+        MenuRam     = 'Clean RAM (soft / aggressive)'
+        RamTitle    = 'CLEAN RAM - pick a mode'
+        RamStatus   = 'Free RAM: {0:N0} MB / {1:N0} MB total'
+        RamModeDeep = 'AGGRESSIVE - close apps you pick, then deep clean (watch out for unsaved work)'
+        RamModeSoft = 'SOFT - only flush RAM junk (trim working sets, purge standby cache), closes NOTHING'
+        RamKillWarn = 'WARNING: closing apps may lose unsaved work. Apps are closed GRACEFULLY first (they can prompt to save); force-kill only happens if you agree once more.'
+        RamPickTitle= 'SELECT APPS TO CLOSE (nothing is closed until you confirm)'
+        RamKillConfirm = 'Close {0} selected apps? [y/N]'
+        RamClosed   = 'Gracefully closed {0} apps.'
+        RamForceAsk = '{0} apps did not close ({1}). FORCE KILL now - unsaved work will be lost? [y/N]'
+        RamForceDone= 'Force-killed {0} apps.'
+        RamNoApps   = 'No windowed apps available to close.'
+        RamCleaning = 'Flushing RAM junk'
+        RamNeedAdmin= 'Not running as Administrator - only accessible working sets get trimmed; purging standby cache needs admin.'
+        RamSwept    = 'Trimmed working sets of {0} processes ({1} not accessible).'
+        RamPurged   = 'Purged system standby cache + modified pages (admin).'
+        RamDone     = 'Free RAM: {0:N0} MB -> {1:N0} MB (delta {2:+#,0;-#,0;0} MB).'
+        MenuLicense = 'Windows license audit (detect pirated KMS / MAS / HWID traces)'
+        LicTitle    = 'WINDOWS LICENSE AUDIT - read-only, changes nothing'
+        LicRunning  = 'Auditing Windows activation'
+        LicDetected    = 'DETECTED'
+        LicNotDetected = 'NOT DETECTED'
+        LicValid    = 'VALID'
+        LicInvalid  = 'INVALID'
+        LicClean    = 'Command-line history is clean'
+        LicNotClean = 'Command-line history is NOT clean'
+        LicSummaryClean = 'Verdict: {0}/{1} checks clean - no signs of activation cracks.'
+        LicSummaryBad   = 'Verdict: {0}/{1} checks show signs of cracking / license tampering.'
+        LicNeedAdmin = '(tip: run as Administrator for a fuller audit - services, system tasks)'
+        Lic1 = 'KMS crack - rogue KMS server configuration'
+        Lic2 = 'MAS / HWID - command-line history'
+        Lic3 = 'KMS38 hook - activation expiry structure'
+        Lic4 = 'License logic - license channel vs BIOS cross-check'
+        Lic5 = 'Pirate tool folders - KMSpico / KMSAuto / KMS Online'
+        Lic6 = 'Hidden tasks - rogue renewal tasks in Task Scheduler'
+        Lic7 = 'Registry tampering - keys blocking license validation'
+        Lic8 = 'Unsafe activation servers - hosts file + KMS port 1688'
+        LicGenTitle  = 'LICENSE STATUS - genuine verification'
+        LicEdition   = 'Windows edition'
+        LicActStatus = 'Activation status'
+        LicGenVerify = 'Microsoft verification (SLWGA)'
+        LicChannel   = 'License channel'
+        LicBiosKey   = 'OEM key in BIOS (OA3)'
+        LicSt0 = 'Unlicensed'
+        LicSt1 = 'Activated (Licensed)'
+        LicSt2 = 'Not activated - initial grace period (OOB Grace)'
+        LicSt3 = 'Reactivation needed - hardware changed (OOT Grace)'
+        LicSt4 = 'NON-GENUINE - in grace period (Non-Genuine Grace)'
+        LicSt5 = 'Notification mode - activation invalid'
+        LicSt6 = 'Extended grace period'
+        LicGenGenuine  = 'GENUINE - license intact'
+        LicGenInvalid  = 'NOT GENUINE - invalid license'
+        LicGenTampered = 'NOT GENUINE - license tampered'
+        LicGenOffline  = 'Could not verify (offline) - falling back to activation status'
+        LicGenApiFail  = 'Verification API unavailable - falling back to activation status'
+        LicOemYes = 'Yes ({0}) - machine shipped with a Windows license'
+        LicOemNo  = 'No - machine did not ship with an OEM license'
+        LicUnknown = 'Unknown'
+        LicVerdictGenuine    = 'Your Windows is GENUINE - nothing to worry about.'
+        LicVerdictTraces     = 'Windows is genuinely activated BUT crack-tool traces remain (red items above) - clean them up to avoid security and legal risks.'
+        LicVerdictNotGenuine = 'Windows does NOT have a valid license - consider buying a genuine license to avoid legal and security risks.'
+        LicBuy1 = 'Buy genuine only from Microsoft official sources: microsoft.com (Microsoft Store), or use the Windows preinstalled by your PC manufacturer.'
+        LicBuy2 = 'Beware of unusually cheap keys (a few USD): usually grey-market OEM/volume keys that Microsoft can revoke at any time.'
+        LicBuy3 = 'Quick self-check in Windows: Settings > System > Activation.'
+        LicLawVN = 'Legal note (Vietnam): using unlicensed software is punishable under Decrees 131/2013/ND-CP and 341/2025/ND-CP (effective 2026-02-15); organizations face fines up to hundreds of millions VND.'
     }
     zh = @{
         ChooseLang  = 'Chọn ngôn ngữ / Choose language / 选择语言 / Выберите язык:'
@@ -254,6 +385,71 @@ $i18n = @{
         DlDone      = '已整理 {0} 个文件。撤销：{1}'
         ReportSaved = 'HTML 报告：{0}'
         NoteVi      = '注：报告的技术细节目前为越南语。'
+        MenuRam     = '清理内存（温和 / 强力）'
+        RamTitle    = '清理内存 - 选择模式'
+        RamStatus   = '可用内存：{0:N0} MB / 共 {1:N0} MB'
+        RamModeDeep = '强力 - 关闭您选择的应用后深度清理（注意未保存的数据）'
+        RamModeSoft = '温和 - 只清理内存垃圾（压缩工作集、清空待机缓存），不关闭任何应用'
+        RamKillWarn = '警告：关闭应用可能丢失未保存的数据。应用会先被温和关闭（可提示保存）；只有您再次同意才会强制结束。'
+        RamPickTitle= '选择要关闭的应用（确认前不会关闭任何内容）'
+        RamKillConfirm = '关闭选中的 {0} 个应用？[y/N]'
+        RamClosed   = '已温和关闭 {0} 个应用。'
+        RamForceAsk = '{0} 个应用未自行关闭（{1}）。立即强制结束 - 未保存数据将丢失？[y/N]'
+        RamForceDone= '已强制结束 {0} 个应用。'
+        RamNoApps   = '没有可关闭的窗口应用。'
+        RamCleaning = '正在清理内存垃圾'
+        RamNeedAdmin= '未以管理员运行 - 只能压缩可访问进程的工作集；清空待机缓存需要管理员权限。'
+        RamSwept    = '已压缩 {0} 个进程的工作集（{1} 个无法访问）。'
+        RamPurged   = '已清空系统待机缓存和已修改页面（管理员）。'
+        RamDone     = '可用内存：{0:N0} MB -> {1:N0} MB（变化 {2:+#,0;-#,0;0} MB）。'
+        MenuLicense = 'Windows 授权检查（检测盗版 KMS / MAS / HWID 痕迹）'
+        LicTitle    = 'WINDOWS 授权检查 - 只读，不做任何更改'
+        LicRunning  = '正在检查 Windows 激活状态'
+        LicDetected    = '检测到'
+        LicNotDetected = '未检测到'
+        LicValid    = '有效'
+        LicInvalid  = '无效'
+        LicClean    = '命令行历史干净'
+        LicNotClean = '命令行历史不干净'
+        LicSummaryClean = '结论：{0}/{1} 项检查干净 - 未发现激活破解迹象。'
+        LicSummaryBad   = '结论：{0}/{1} 项检查发现破解 / 篡改授权的迹象。'
+        LicNeedAdmin = '（提示：以管理员身份运行可进行更全面的检查 - 服务、系统任务）'
+        Lic1 = 'KMS 破解 - 盗版 KMS 服务器配置'
+        Lic2 = 'MAS / HWID - 命令行历史'
+        Lic3 = 'KMS38 钩子 - 激活期限结构'
+        Lic4 = '授权逻辑 - 许可渠道与 BIOS 对照'
+        Lic5 = '盗版工具目录 - KMSpico / KMSAuto / KMS Online'
+        Lic6 = '隐藏任务 - 计划任务中的非法续期任务'
+        Lic7 = '注册表篡改 - 阻止授权验证的键值'
+        Lic8 = '不安全的激活服务器 - hosts 文件 + KMS 1688 端口'
+        LicGenTitle  = '授权状态 - 正版验证'
+        LicEdition   = 'Windows 版本'
+        LicActStatus = '激活状态'
+        LicGenVerify = 'Microsoft 验证 (SLWGA)'
+        LicChannel   = '许可渠道'
+        LicBiosKey   = 'BIOS 中的 OEM 密钥 (OA3)'
+        LicSt0 = '无许可证 (Unlicensed)'
+        LicSt1 = '已激活 (Licensed)'
+        LicSt2 = '未激活 - 初始宽限期 (OOB Grace)'
+        LicSt3 = '需要重新激活 - 硬件已变更 (OOT Grace)'
+        LicSt4 = '非正版 - 宽限期内 (Non-Genuine Grace)'
+        LicSt5 = '通知模式 - 激活无效 (Notification)'
+        LicSt6 = '延长宽限期 (Extended Grace)'
+        LicGenGenuine  = '正版 - 许可证完好'
+        LicGenInvalid  = '非正版 - 许可证无效'
+        LicGenTampered = '非正版 - 许可证已被篡改 (Tampered)'
+        LicGenOffline  = '无法验证（离线）- 以激活状态为准'
+        LicGenApiFail  = '验证 API 不可用 - 以激活状态为准'
+        LicOemYes = '有（{0}）- 机器出厂自带 Windows 授权'
+        LicOemNo  = '无 - 机器出厂未附带 OEM 授权'
+        LicUnknown = '未知'
+        LicVerdictGenuine    = '您的 Windows 是正版授权 - 请放心使用。'
+        LicVerdictTraces     = 'Windows 已正版激活，但仍残留破解工具痕迹（上方红色项目）- 建议清理以避免安全和法律风险。'
+        LicVerdictNotGenuine = 'Windows 没有有效授权 - 建议购买正版授权以避免法律和安全风险。'
+        LicBuy1 = '仅通过 Microsoft 官方渠道购买正版：microsoft.com（Microsoft Store），或使用电脑制造商预装的 Windows。'
+        LicBuy2 = '警惕异常低价的密钥（几美元）：通常是灰色市场的 OEM/批量密钥，Microsoft 随时可能吊销。'
+        LicBuy3 = '在 Windows 中快速自查：设置 > 系统 > 激活。'
+        LicLawVN = '法律提示（越南）：使用无授权软件可依据第 131/2013/ND-CP 号和第 341/2025/ND-CP 号法令（2026-02-15 生效）处罚；违规组织最高可被罚款数亿越南盾。'
     }
     ru = @{
         ChooseLang  = 'Chọn ngôn ngữ / Choose language / 选择语言 / Выберите язык:'
@@ -321,6 +517,71 @@ $i18n = @{
         DlDone      = 'Организовано файлов: {0}. Откат: {1}'
         ReportSaved = 'HTML-отчёт: {0}'
         NoteVi      = 'Примечание: технические детали отчёта пока на вьетнамском.'
+        MenuRam     = 'Очистка ОЗУ (мягкая / жёсткая)'
+        RamTitle    = 'ОЧИСТКА ОЗУ - выберите режим'
+        RamStatus   = 'Свободно ОЗУ: {0:N0} МБ / всего {1:N0} МБ'
+        RamModeDeep = 'ЖЁСТКИЙ - закрыть выбранные вами приложения, затем глубокая очистка (берегите несохранённые данные)'
+        RamModeSoft = 'МЯГКИЙ - только чистка мусора ОЗУ (сжатие рабочих наборов, сброс standby-кэша), НИЧЕГО не закрывает'
+        RamKillWarn = 'ВНИМАНИЕ: закрытие приложений может привести к потере несохранённых данных. Сначала приложения закрываются МЯГКО (успеют предложить сохранение); принудительное завершение - только после вашего повторного согласия.'
+        RamPickTitle= 'ВЫБЕРИТЕ ПРИЛОЖЕНИЯ ДЛЯ ЗАКРЫТИЯ (ничего не закрывается до подтверждения)'
+        RamKillConfirm = 'Закрыть выбранные приложения ({0})? [y/N]'
+        RamClosed   = 'Мягко закрыто приложений: {0}.'
+        RamForceAsk = 'Не закрылись сами: {0} ({1}). ПРИНУДИТЕЛЬНО завершить - несохранённые данные будут потеряны? [y/N]'
+        RamForceDone= 'Принудительно завершено: {0}.'
+        RamNoApps   = 'Оконных приложений для закрытия нет.'
+        RamCleaning = 'Чистка мусора ОЗУ'
+        RamNeedAdmin= 'Нет прав администратора - сжимаются только доступные рабочие наборы; сброс standby-кэша требует admin.'
+        RamSwept    = 'Сжаты рабочие наборы {0} процессов (недоступно: {1}).'
+        RamPurged   = 'Сброшены системный standby-кэш и изменённые страницы (admin).'
+        RamDone     = 'Свободно ОЗУ: {0:N0} МБ -> {1:N0} МБ (изменение {2:+#,0;-#,0;0} МБ).'
+        MenuLicense = 'Проверка лицензии Windows (следы пиратского KMS / MAS / HWID)'
+        LicTitle    = 'ПРОВЕРКА ЛИЦЕНЗИИ WINDOWS - только чтение, ничего не меняет'
+        LicRunning  = 'Проверка активации Windows'
+        LicDetected    = 'ОБНАРУЖЕНО'
+        LicNotDetected = 'НЕ ОБНАРУЖЕНО'
+        LicValid    = 'КОРРЕКТНО'
+        LicInvalid  = 'НЕКОРРЕКТНО'
+        LicClean    = 'История командной строки чиста'
+        LicNotClean = 'История командной строки НЕ чиста'
+        LicSummaryClean = 'Итог: {0}/{1} проверок чисты - признаков взлома активации нет.'
+        LicSummaryBad   = 'Итог: {0}/{1} проверок выявили признаки взлома / вмешательства в лицензию.'
+        LicNeedAdmin = '(совет: запустите от имени администратора для более полной проверки - службы, системные задачи)'
+        Lic1 = 'KMS-взлом - конфигурация пиратского KMS-сервера'
+        Lic2 = 'MAS / HWID - история командной строки'
+        Lic3 = 'KMS38-хук - структура срока активации'
+        Lic4 = 'Логика лицензии - сверка канала лицензирования и BIOS'
+        Lic5 = 'Папки пиратских утилит - KMSpico / KMSAuto / KMS Online'
+        Lic6 = 'Скрытые задачи - задачи нелегального продления в планировщике'
+        Lic7 = 'Вмешательство в реестр - ключи, блокирующие проверку лицензии'
+        Lic8 = 'Небезопасные серверы активации - файл hosts + порт KMS 1688'
+        LicGenTitle  = 'СТАТУС ЛИЦЕНЗИИ - проверка подлинности'
+        LicEdition   = 'Редакция Windows'
+        LicActStatus = 'Статус активации'
+        LicGenVerify = 'Проверка Microsoft (SLWGA)'
+        LicChannel   = 'Канал лицензирования'
+        LicBiosKey   = 'OEM-ключ в BIOS (OA3)'
+        LicSt0 = 'Нет лицензии (Unlicensed)'
+        LicSt1 = 'Активирована (Licensed)'
+        LicSt2 = 'Не активирована - начальный льготный период (OOB Grace)'
+        LicSt3 = 'Требуется повторная активация - изменено оборудование (OOT Grace)'
+        LicSt4 = 'НЕ подлинная - льготный период (Non-Genuine Grace)'
+        LicSt5 = 'Режим уведомлений - активация недействительна'
+        LicSt6 = 'Продлённый льготный период (Extended Grace)'
+        LicGenGenuine  = 'ПОДЛИННАЯ - лицензия не повреждена'
+        LicGenInvalid  = 'НЕ ПОДЛИННАЯ - лицензия недействительна'
+        LicGenTampered = 'НЕ ПОДЛИННАЯ - лицензия изменена (Tampered)'
+        LicGenOffline  = 'Проверить не удалось (offline) - ориентируемся на статус активации'
+        LicGenApiFail  = 'API проверки недоступен - ориентируемся на статус активации'
+        LicOemYes = 'Есть ({0}) - машина поставлялась с лицензией Windows'
+        LicOemNo  = 'Нет - машина поставлялась без OEM-лицензии'
+        LicUnknown = 'Не определено'
+        LicVerdictGenuine    = 'Ваша Windows ПОДЛИННАЯ - можно спокойно пользоваться.'
+        LicVerdictTraces     = 'Windows активирована подлинно, НО остались следы инструментов взлома (красные пункты выше) - удалите их, чтобы избежать рисков безопасности и юридических рисков.'
+        LicVerdictNotGenuine = 'У Windows НЕТ действительной лицензии - рассмотрите покупку подлинной лицензии, чтобы избежать юридических рисков и рисков безопасности.'
+        LicBuy1 = 'Покупайте подлинную лицензию только из официальных источников Microsoft: microsoft.com (Microsoft Store), либо используйте Windows, предустановленную производителем ПК.'
+        LicBuy2 = 'Остерегайтесь подозрительно дешёвых ключей (несколько долларов): обычно это серые OEM/корпоративные ключи, которые Microsoft может отозвать в любой момент.'
+        LicBuy3 = 'Быстрая самопроверка в Windows: Параметры > Система > Активация.'
+        LicLawVN = 'Юридическая справка (Вьетнам): использование нелицензионного ПО наказуемо по декретам 131/2013/ND-CP и 341/2025/ND-CP (в силе с 15.02.2026); организациям грозят штрафы до сотен миллионов донгов.'
     }
 }
 
@@ -2520,6 +2781,664 @@ function Invoke-FlowInstall {
     }
 }
 
+# ════════════════════════ RAM CLEANER ════════════════════════
+
+function Initialize-RamNative {
+    # Nạp P/Invoke một lần cho phiên. C# viết theo chuẩn C# 5 (compiler của PS 5.1
+    # không hiểu out-var / string interpolation). TOKEN_PRIVILEGES phải Pack=4 -
+    # long Luid mặc định align 8 sẽ lệch layout native (PrivilegeCount 4 byte + LUID).
+    if ('WinTrash.RamNative' -as [type]) { return $true }
+    $src = @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace WinTrash {
+    public static class RamNative {
+        [StructLayout(LayoutKind.Sequential, Pack = 4)]
+        public struct TOKEN_PRIVILEGES {
+            public uint PrivilegeCount;
+            public long Luid;
+            public uint Attributes;
+        }
+
+        [DllImport("psapi.dll", SetLastError = true)]
+        public static extern bool EmptyWorkingSet(IntPtr hProcess);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
+
+        [DllImport("kernel32.dll")]
+        public static extern bool CloseHandle(IntPtr hObject);
+
+        [DllImport("kernel32.dll")]
+        public static extern IntPtr GetCurrentProcess();
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        public static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        public static extern bool LookupPrivilegeValue(string lpSystemName, string lpName, out long lpLuid);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        public static extern bool AdjustTokenPrivileges(IntPtr TokenHandle, bool DisableAllPrivileges,
+            ref TOKEN_PRIVILEGES NewState, int BufferLength, IntPtr PreviousState, IntPtr ReturnLength);
+
+        [DllImport("ntdll.dll")]
+        public static extern uint NtSetSystemInformation(int SystemInformationClass, ref int SystemInformation, int SystemInformationLength);
+
+        // Nén working set MỘT tiến trình với quyền tối thiểu (SET_QUOTA | QUERY_INFORMATION)
+        // - Process.Handle của .NET xin full access nên fail nhiều tiến trình hơn cần thiết
+        public static bool TrimProcess(int pid) {
+            IntPtr h = OpenProcess(0x0100u | 0x0400u, false, pid);
+            if (h == IntPtr.Zero) { return false; }
+            bool ok = EmptyWorkingSet(h);
+            CloseHandle(h);
+            return ok;
+        }
+
+        // Bật privilege trên token của chính mình (SeProfileSingleProcessPrivilege...).
+        // AdjustTokenPrivileges trả true cả khi KHÔNG gán được -> phải soi GetLastWin32Error.
+        public static bool EnablePrivilege(string name) {
+            IntPtr tok;
+            if (!OpenProcessToken(GetCurrentProcess(), 0x20u | 0x8u, out tok)) { return false; }
+            long luid;
+            if (!LookupPrivilegeValue(null, name, out luid)) { CloseHandle(tok); return false; }
+            TOKEN_PRIVILEGES tp;
+            tp.PrivilegeCount = 1;
+            tp.Luid = luid;
+            tp.Attributes = 2u;   // SE_PRIVILEGE_ENABLED
+            bool ok = AdjustTokenPrivileges(tok, false, ref tp, 0, IntPtr.Zero, IntPtr.Zero);
+            int err = Marshal.GetLastWin32Error();
+            CloseHandle(tok);
+            return ok && err == 0;
+        }
+
+        // SystemMemoryListInformation = 80; command: 2 = empty working sets toàn hệ thống,
+        // 3 = flush modified list, 4 = purge standby, 5 = purge standby ưu tiên thấp.
+        // Trả NTSTATUS (0 = thành công).
+        public static uint PurgeMemoryList(int command) {
+            int cmd = command;
+            return NtSetSystemInformation(80, ref cmd, 4);
+        }
+    }
+}
+'@
+    try { Add-Type -TypeDefinition $src -ErrorAction Stop; return $true } catch { return $false }
+}
+
+function Get-RamStatus {
+    # MB trống / tổng - lấy từ CIM (không phụ thuộc tên counter bị bản địa hóa)
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+    if (-not $os) { return @{ FreeMB = 0; TotalMB = 0 } }
+    return @{
+        FreeMB  = [math]::Round($os.FreePhysicalMemory / 1KB, 0)
+        TotalMB = [math]::Round($os.TotalVisibleMemorySize / 1KB, 0)
+    }
+}
+
+function Select-RamAppCandidates {
+    # Lọc ứng dụng CÓ CỬA SỔ được phép đề nghị đóng ở chế độ bất chấp. Thuần túy để test.
+    # Loại: chính mình, shell/hạ tầng Windows, host console (đóng nó là chết luôn script).
+    param([object[]]$Processes, [int]$SelfId = $PID)
+    $excluded = @(
+        'explorer', 'dwm', 'csrss', 'winlogon', 'services', 'lsass', 'smss', 'svchost',
+        'ShellExperienceHost', 'StartMenuExperienceHost', 'SearchHost', 'SearchApp',
+        'TextInputHost', 'ApplicationFrameHost', 'SystemSettings', 'RuntimeBroker',
+        'sihost', 'taskhostw', 'ctfmon', 'conhost', 'OpenConsole', 'WindowsTerminal',
+        'cmd', 'wt', 'powershell', 'powershell_ise', 'pwsh', 'LogonUI', 'fontdrvhost', 'audiodg',
+        'SecurityHealthSystray', 'MemCompression', 'Registry', 'Idle', 'System'
+    )
+    return @($Processes | Where-Object {
+        $_.Id -ne $SelfId -and
+        $_.MainWindowHandle -ne [IntPtr]::Zero -and
+        $excluded -notcontains $_.ProcessName
+    })
+}
+
+function Invoke-FlowRamClean {
+    param([hashtable]$L, [string]$Mode = '')
+    $before = Get-RamStatus
+    Write-Host ''
+    Write-Host $L.RamTitle -ForegroundColor Cyan
+    Write-C ($L.RamStatus -f $before.FreeMB, $before.TotalMB) -Color Gray
+    Write-Host ''
+    if (-not $Mode) {
+        if (-not (Test-Interactive)) { $Mode = 'soft' }   # non-interactive: chỉ chế độ an toàn
+        else {
+            Write-Host ("  1. {0}" -f $L.RamModeDeep) -ForegroundColor Yellow
+            Write-Host ("  2. {0}" -f $L.RamModeSoft)
+            Write-Host ("  0. {0}" -f $L.Back) -ForegroundColor DarkGray
+            $choice = Read-Host '>'
+            if ($choice -eq '0') { return }
+            $Mode = switch ($choice) { '1' { 'deep' } '2' { 'soft' } default { '' } }
+            if (-not $Mode) { Write-Host $L.Invalid -ForegroundColor Red; return }
+        }
+    }
+
+    # ---- Chế độ bất chấp: chọn app để đóng (checkbox + y/N, đóng lịch sự trước) ----
+    if ($Mode -eq 'deep') {
+        Write-Host ''
+        Write-Host $L.RamKillWarn -ForegroundColor Red
+        Write-Host ''
+        $apps = Select-RamAppCandidates -Processes (Get-Process -ErrorAction SilentlyContinue)
+        if ($apps.Count -eq 0) {
+            Write-Host $L.RamNoApps -ForegroundColor Yellow
+        } else {
+            $apps = @($apps | Sort-Object WorkingSet64 -Descending)
+            $labels = foreach ($p in $apps) {
+                $title = [string]$p.MainWindowTitle
+                if ($title.Length -gt 45) { $title = $title.Substring(0, 44) + '…' }
+                "{0,-22} {1,8:N0} MB  {2}" -f $p.ProcessName, ($p.WorkingSet64 / 1MB), $title
+            }
+            $selectedIdx = Show-CheckboxMenu -Labels @($labels) -Title $L.RamPickTitle -Help $L.PickerHelp
+            if ($null -eq $selectedIdx) { Write-Host $L.NoInteract -ForegroundColor Yellow }
+            elseif ($selectedIdx.Count -gt 0) {
+                $chosen = @($selectedIdx | ForEach-Object { $apps[$_] })
+                $answer = Read-Host ($L.RamKillConfirm -f $chosen.Count)
+                if ($answer -match '^[yY]') {
+                    # Vòng 1: đóng lịch sự (app kịp bật hộp thoại lưu), chờ tối đa 5 giây
+                    foreach ($p in $chosen) { try { [void]$p.CloseMainWindow() } catch {} }
+                    $deadline = (Get-Date).AddSeconds(5)
+                    do { Start-Sleep -Milliseconds 300 } while ((Get-Date) -lt $deadline -and
+                        @($chosen | Where-Object { try { -not $_.HasExited } catch { $false } }).Count -gt 0)
+                    $survivors = @($chosen | Where-Object { try { -not $_.HasExited } catch { $false } })
+                    Write-Host ($L.RamClosed -f ($chosen.Count - $survivors.Count)) -ForegroundColor Green
+                    # Vòng 2: còn sống -> hỏi RIÊNG lần nữa mới buộc dừng
+                    if ($survivors.Count -gt 0) {
+                        $names = ($survivors | Select-Object -First 5 | ForEach-Object { $_.ProcessName }) -join ', '
+                        $force = Read-Host ($L.RamForceAsk -f $survivors.Count, $names)
+                        if ($force -match '^[yY]') {
+                            $killed = 0
+                            foreach ($p in $survivors) { try { $p.Kill(); $killed++ } catch {} }
+                            Write-Host ($L.RamForceDone -f $killed) -ForegroundColor Yellow
+                        }
+                    }
+                }
+            } else { Write-Host $L.NothingSel -ForegroundColor Yellow }
+        }
+    }
+
+    # ---- Cả hai chế độ: dọn rác RAM (không đóng gì) ----
+    Write-Host ''
+    if (-not (Initialize-RamNative)) { Write-Host ($L.UpdateFail -f 'P/Invoke') -ForegroundColor Yellow; return }
+    $spinnerHandle = Start-ScanSpinner -Text $L.RamCleaning
+    $sweptOk = 0; $sweptFail = 0; $purged = $false
+    try {
+        $isAdmin = Test-IsAdmin
+        if ($isAdmin) {
+            # Đường kernel (như RAMMap/EmptyStandbyList): cần SeProfileSingleProcessPrivilege
+            [void][WinTrash.RamNative]::EnablePrivilege('SeProfileSingleProcessPrivilege')
+            [void][WinTrash.RamNative]::EnablePrivilege('SeIncreaseQuotaPrivilege')
+            [void][WinTrash.RamNative]::EnablePrivilege('SeDebugPrivilege')
+            $stEmpty   = [WinTrash.RamNative]::PurgeMemoryList(2)   # empty working sets toàn hệ thống
+            $stFlush   = [WinTrash.RamNative]::PurgeMemoryList(3)   # flush modified pages
+            $stStandby = [WinTrash.RamNative]::PurgeMemoryList(4)   # purge standby cache
+            [void][WinTrash.RamNative]::PurgeMemoryList(5)          # standby ưu tiên thấp
+            $purged = ($stFlush -eq 0 -and $stStandby -eq 0)
+            if ($stEmpty -ne 0) { $isAdmin = $false }   # lệnh kernel fail -> rơi về quét từng tiến trình
+        }
+        if (-not $isAdmin) {
+            foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
+                if ([WinTrash.RamNative]::TrimProcess($p.Id)) { $sweptOk++ } else { $sweptFail++ }
+            }
+        }
+    } finally { Stop-ScanSpinner -Handle $spinnerHandle }
+    Start-Sleep -Milliseconds 800   # cho hệ thống kịp cập nhật số liệu
+
+    if ($purged) { Write-Host $L.RamPurged -ForegroundColor Green }
+    elseif ($sweptOk -gt 0) {
+        Write-Host ($L.RamSwept -f $sweptOk, $sweptFail) -ForegroundColor Green
+        if (-not (Test-IsAdmin)) { Write-Host $L.RamNeedAdmin -ForegroundColor DarkGray }
+    }
+    $after = Get-RamStatus
+    Write-Host ''
+    Write-C ($L.RamDone -f $before.FreeMB, $after.FreeMB, ($after.FreeMB - $before.FreeMB)) -Color Cyan
+    Write-Host ''
+}
+
+# ════════════════════ KIỂM TRA BẢN QUYỀN WINDOWS ════════════════════
+# 8 hạng mục CHỈ ĐỌC: phát hiện dấu vết KMS lậu / MAS / HWID / KMS38 / can thiệp
+# hệ thống cấp phép. Không thay đổi gì trên máy - chỉ báo cáo.
+
+function Limit-LicText {
+    param([string]$Text, [int]$Max = 90)
+    $t = ($Text -replace '\s+', ' ').Trim()
+    if ($t.Length -gt $Max) { return $t.Substring(0, $Max - 1) + '…' }
+    return $t
+}
+
+function New-LicResult {
+    param([bool]$Bad, [System.Collections.Generic.List[string]]$Details)
+    return [PSCustomObject]@{ Bad = $Bad; Details = @($Details) }
+}
+
+function Test-LicKmsCrack {
+    # 1. Máy chủ KMS lậu cấu hình trong SoftwareProtectionPlatform (toàn cục + từng SKU)
+    param([bool]$PartOfDomain)
+    $details = [System.Collections.Generic.List[string]]::new()
+    $bad = $false
+    $knownBad = @(
+        'kms.digiboy.ir', 'kms8.msguides.com', 'kms9.msguides.com', 'kms.chinancce.com',
+        'kms.loli.beer', 'kms.03k.org', 'kms.library.hk', 's1.kms.cx', 'kms.cangshui.net',
+        'kms.moeclub.org', 'zh.us.to', 'kms.lotro.cc', 'kms.bige0.com', 'kms.ghpym.com',
+        'kms.wxlost.com', 'kms.iaini.net', 'kms.v0v.bid', 'kms.moeyuuko.top', 'kms.sixyin.com',
+        'kms.ddz.red', 'kms.zhuxiaole.org', 'kms.jm33.me', 'kms.dwhd.org', 'kms.luody.info',
+        'kms.mogeko.me', 'kms.ijio.net', 'kms.51it.wang', 'kms-default.uzfull.com'
+    )
+    $sppKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform'
+    $keyPaths = [System.Collections.Generic.List[string]]::new()
+    $keyPaths.Add($sppKey)
+    $skuRoot = Join-Path $sppKey '55c92734-d682-4d71-983e-d6ec3f16059f'
+    if (Test-Path -LiteralPath $skuRoot) {
+        foreach ($sub in (Get-ChildItem -LiteralPath $skuRoot -ErrorAction SilentlyContinue)) {
+            $keyPaths.Add($sub.PSPath)
+        }
+    }
+    foreach ($kp in $keyPaths) {
+        $props = Get-ItemProperty -LiteralPath $kp -ErrorAction SilentlyContinue
+        if ($null -eq $props) { continue }
+        $kmsName = [string]$props.KeyManagementServiceName
+        if ([string]::IsNullOrWhiteSpace($kmsName)) { continue }
+        $hostOnly = $kmsName.Split(':')[0].Trim().ToLowerInvariant()
+        if ($hostOnly -match '^(127\.|localhost$|::1$|0\.0\.0\.0$)') {
+            $bad = $true
+            $details.Add(("Máy chủ KMS trỏ về loopback '{0}' - dấu hiệu trình giả lập KMS chạy ngay trên máy (KMSpico/vlmcsd)." -f $kmsName))
+        } elseif ($knownBad -contains $hostOnly) {
+            $bad = $true
+            $details.Add(("Máy chủ KMS '{0}' nằm trong danh sách máy chủ KMS công cộng lậu." -f $kmsName))
+        } elseif (-not $PartOfDomain) {
+            $bad = $true
+            $details.Add(("Máy KHÔNG thuộc domain công ty nhưng có cấu hình máy chủ KMS thủ công: '{0}'." -f $kmsName))
+        } else {
+            $details.Add(("Máy thuộc domain - máy chủ KMS '{0}' nhiều khả năng là KMS nội bộ hợp lệ." -f $kmsName))
+        }
+    }
+    if ($keyPaths.Count -gt 0 -and $details.Count -eq 0) {
+        $details.Add('Không có máy chủ KMS nào được cấu hình trong registry.')
+    }
+    return New-LicResult -Bad $bad -Details $details
+}
+
+function Test-LicMasHistory {
+    # 2. Dấu vết MAS / HWID / lệnh bẻ khóa trong lịch sử dòng lệnh (PSReadLine + RunMRU)
+    $details = [System.Collections.Generic.List[string]]::new()
+    $bad = $false
+    $pattern = '(?i)massgrave|activated\.win|get\.activated|Microsoft-Activation-Scripts|MAS_AIO|TSforge|kms38|gatherosstate|hwidgen|[/\\-]HWID\b|slmgr(\.vbs)?\s+[-/]ipk|kmspico|kms[-_ ]?auto|kms_vl|vlmcsd|py-kms|SppExtComObjHook|\bohook\b'
+    $relHist = 'AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt'
+    $histFiles = [System.Collections.Generic.List[string]]::new()
+    $histFiles.Add((Join-Path $env:APPDATA 'Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt'))
+    foreach ($up in (Get-OtherUserProfiles)) { $histFiles.Add((Join-Path $up.Path $relHist)) }
+    $scanned = 0
+    foreach ($hf in $histFiles) {
+        if (-not (Test-Path -LiteralPath $hf)) { continue }
+        $scanned++
+        $hits = @(Select-String -LiteralPath $hf -Pattern $pattern -ErrorAction SilentlyContinue)
+        if ($hits.Count -gt 0) {
+            $bad = $true
+            $owner = Split-Path (($hf -split '\\AppData\\')[0]) -Leaf
+            $details.Add(("{0} lệnh nghi vấn trong lịch sử PowerShell của user '{1}':" -f $hits.Count, $owner))
+            foreach ($h in ($hits | Select-Object -First 3)) {
+                $details.Add(('  > ' + (Limit-LicText $h.Line)))
+            }
+        }
+    }
+    # Hộp thoại Run (Win+R) của user hiện tại
+    $mru = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU' -ErrorAction SilentlyContinue
+    if ($mru) {
+        foreach ($p in $mru.PSObject.Properties) {
+            if ($p.Name -in 'MRUList', 'PSPath', 'PSParentPath', 'PSChildName', 'PSDrive', 'PSProvider') { continue }
+            if ([string]$p.Value -match $pattern) {
+                $bad = $true
+                $details.Add(('Lệnh nghi vấn trong hộp thoại Run (Win+R): ' + (Limit-LicText ([string]$p.Value))))
+            }
+        }
+    }
+    if (-not $bad) { $details.Add(("Đã quét {0} tệp lịch sử PowerShell + hộp thoại Run - không thấy lệnh kích hoạt lậu." -f $scanned)) }
+    return New-LicResult -Bad $bad -Details $details
+}
+
+function Test-LicKms38 {
+    # 3. KMS38: đẩy hạn kích hoạt KMS tới năm 2038 (hoặc vĩnh viễn kiểu TSforge)
+    param([object[]]$Products)
+    $details = [System.Collections.Generic.List[string]]::new()
+    $bad = $false
+    $kmsProducts = @($Products | Where-Object { $_.LicenseStatus -eq 1 -and [string]$_.Description -match 'KMSCLIENT' })
+    if ($kmsProducts.Count -eq 0) {
+        $details.Add('Không có giấy phép nào kích hoạt qua kênh KMS - cấu trúc thời hạn đồng nhất, hợp lệ.')
+        return New-LicResult -Bad $false -Details $details
+    }
+    foreach ($p in $kmsProducts) {
+        $minutes = [double]$p.GracePeriodRemaining
+        if ($minutes -gt 302400) {
+            # KMS hợp lệ tối đa 180 ngày (259.200 phút); trên 210 ngày là bất thường
+            $expiry = (Get-Date).AddMinutes($minutes)
+            $bad = $true
+            $details.Add(("'{0}': hạn KMS còn tới {1:yyyy-MM-dd} (~{2:N0} ngày) - vượt xa mức 180 ngày chuẩn, dấu hiệu KMS38." -f $p.Name, $expiry, ($minutes / 1440)))
+        } elseif ($minutes -le 0) {
+            $bad = $true
+            $details.Add(("'{0}': kích hoạt VĨNH VIỄN trên kênh KMS - không thể xảy ra với KMS hợp lệ (dấu hiệu TSforge/ZeroCID)." -f $p.Name))
+        } else {
+            $details.Add(("'{0}': hạn KMS còn {1:N0} ngày - trong ngưỡng gia hạn 180 ngày bình thường." -f $p.Name, ($minutes / 1440)))
+        }
+    }
+    return New-LicResult -Bad $bad -Details $details
+}
+
+function Test-LicChannelBios {
+    # 4. Đối chiếu kênh cấp phép đang hoạt động với key OEM nhúng trong BIOS/UEFI (OA3)
+    param([object[]]$Products, [object]$Service, [bool]$PartOfDomain)
+    $details = [System.Collections.Generic.List[string]]::new()
+    $bad = $false
+    $os = $Products | Where-Object { $_.LicenseStatus -eq 1 -and [string]$_.Name -match '^Windows' } | Select-Object -First 1
+    if ($null -eq $os) {
+        $details.Add('Không xác định được giấy phép Windows đang hoạt động (máy chưa kích hoạt hoặc không đọc được WMI).')
+        return New-LicResult -Bad $false -Details $details
+    }
+    $channel = ''
+    try { $channel = [string]$os.ProductKeyChannel } catch {}
+    if (-not $channel -and [string]$os.Description -match '(\S+)\s+channel') { $channel = $Matches[1] }
+    $biosKey = ''
+    $biosDesc = ''
+    if ($Service) {
+        try { $biosKey = [string]$Service.OA3xOriginalProductKey } catch {}
+        try { $biosDesc = [string]$Service.OA3xOriginalProductKeyDescription } catch {}
+    }
+    $hasBiosKey = -not [string]::IsNullOrWhiteSpace($biosKey)
+    if ($hasBiosKey -and $channel -match '(?i)volume') {
+        $bad = $true
+        $details.Add(("BIOS có sẵn key OEM ({0}) nhưng Windows lại kích hoạt kênh '{1}' - kênh cấp phép KHÔNG khớp nguồn gốc máy." -f $(if ($biosDesc) { $biosDesc } else { 'OA3' }), $channel))
+    } elseif ($channel -match '(?i)volume' -and -not $PartOfDomain) {
+        $bad = $true
+        $details.Add(("Kênh cấp phép '{0}' (dành cho doanh nghiệp) trên máy KHÔNG thuộc domain - logic bản quyền không hợp lệ." -f $channel))
+    } else {
+        if ($hasBiosKey) {
+            $details.Add(("Kênh cấp phép '{0}' khớp với key OEM nhúng trong BIOS ({1})." -f $channel, $(if ($biosDesc) { $biosDesc } else { 'OA3' })))
+        } else {
+            $details.Add(("Kênh cấp phép '{0}'; BIOS không nhúng key OEM - tổ hợp bình thường (key Retail/MAK nhập tay)." -f $channel))
+        }
+    }
+    return New-LicResult -Bad $bad -Details $details
+}
+
+function Test-LicPirateFolders {
+    # 5. Thư mục / tệp đặc trưng của tool kích hoạt lậu (KMSpico, KMSAuto, KMS Online...)
+    $details = [System.Collections.Generic.List[string]]::new()
+    $bad = $false
+    $roots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramData) | Where-Object { $_ }
+    $namePattern = '(?i)^(kms[-_ ]?(pico|auto|online|vl|tools?)?$|kmspico|kmsauto|autokms|kms_vl_all|micro(soft)?[ ]?toolkit|ratiborus|hwidgen|w10[ ]?digital[ ]?activation|py-kms|vlmcsd)'
+    foreach ($root in $roots) {
+        foreach ($dir in (Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)) {
+            if ($dir.Name -match $namePattern) {
+                $bad = $true
+                $details.Add(('Thư mục nghi vấn: ' + $dir.FullName))
+            }
+        }
+    }
+    # Tàn dư KMSpico/ohook để lại ngay trong thư mục Windows
+    $knownFiles = @(
+        (Join-Path $env:WINDIR 'SECOH-QAD.exe'),
+        (Join-Path $env:WINDIR 'SECOH-QAD.dll'),
+        (Join-Path $env:WINDIR 'System32\SppExtComObjHook.dll'),
+        (Join-Path $env:WINDIR 'System32\SppExtComObjPatcher.exe'),
+        (Join-Path $env:WINDIR 'KMS')
+    )
+    foreach ($f in $knownFiles) {
+        if (Test-Path -LiteralPath $f) {
+            $bad = $true
+            $details.Add(('Tệp/thư mục tàn dư của tool kích hoạt lậu: ' + $f))
+        }
+    }
+    if (-not $bad) { $details.Add('Không thấy thư mục hay tệp nào liên quan tới KMSpico / KMSAuto / KMS Online.') }
+    return New-LicResult -Bad $bad -Details $details
+}
+
+function Test-LicRogueTasks {
+    # 6. Task Scheduler: tác vụ gia hạn kích hoạt lậu (thường ẩn dưới tên vô hại)
+    $details = [System.Collections.Generic.List[string]]::new()
+    $bad = $false
+    $namePattern = '(?i)autokms|kmspico|kms[-_ ]?auto|kms[-_ ]?(renew|activ|online|emulat)|activation[-_ ]?renew|massgrave|win10act|SppExtComObj'
+    $actionPattern = '(?i)kmspico|autokms|kms[-_ ]?auto|kms_vl|vlmcsd|py-kms|SppExtComObjHook|SECOH-QAD|slmgr(\.vbs)?.{0,40}[-/](ipk|ato|skms)|activated\.win|massgrave|gatherosstate'
+    foreach ($t in @(Get-ScheduledTask -ErrorAction SilentlyContinue)) {
+        $fullName = $t.TaskPath + $t.TaskName
+        $hit = $null
+        if ($t.TaskName -match $namePattern) {
+            $hit = 'tên tác vụ nghi vấn'
+        } else {
+            foreach ($a in @($t.Actions)) {
+                $cmd = ('{0} {1}' -f [string]$a.Execute, [string]$a.Arguments).Trim()
+                if ($cmd -and $cmd -match $actionPattern) { $hit = 'lệnh thực thi: ' + (Limit-LicText $cmd 70); break }
+            }
+        }
+        if ($hit) {
+            $bad = $true
+            $details.Add(("Tác vụ gia hạn lậu: '{0}' ({1})." -f $fullName, $hit))
+        }
+    }
+    if (-not $bad) { $details.Add('Không thấy tác vụ gia hạn kích hoạt lậu nào trong Task Scheduler.') }
+    return New-LicResult -Bad $bad -Details $details
+}
+
+function Test-LicRegistryTamper {
+    # 7. Registry: khóa chặn hệ thống gửi/kiểm tra bản quyền, vô hiệu dịch vụ cấp phép
+    $details = [System.Collections.Generic.List[string]]::new()
+    $bad = $false
+    foreach ($actPath in @(
+        'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SoftwareProtectionPlatform\Activation',
+        'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\CurrentVersion\Software Protection Platform')) {
+        $props = Get-ItemProperty -LiteralPath $actPath -ErrorAction SilentlyContinue
+        if ($props -and $props.PSObject.Properties['NoGenTicket'] -and $props.NoGenTicket -eq 1) {
+            $bad = $true
+            $details.Add(("Khóa 'NoGenTicket = 1' tại {0} - chặn hệ thống tạo/gửi ticket kiểm tra bản quyền chính hãng." -f $actPath))
+        }
+    }
+    foreach ($svcName in 'sppsvc', 'ClipSVC') {
+        $svcKey = "HKLM:\SYSTEM\CurrentControlSet\Services\$svcName"
+        $props = Get-ItemProperty -LiteralPath $svcKey -ErrorAction SilentlyContinue
+        if ($props -and $props.Start -eq 4) {
+            $bad = $true
+            $details.Add(("Dịch vụ cấp phép '{0}' bị VÔ HIỆU HÓA (Start = 4) - hệ thống không thể tự kiểm tra bản quyền." -f $svcName))
+        }
+    }
+    foreach ($exe in 'sppsvc.exe', 'SppExtComObj.exe', 'slui.exe') {
+        $ifeo = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$exe"
+        $props = Get-ItemProperty -LiteralPath $ifeo -ErrorAction SilentlyContinue
+        if ($props -and $props.PSObject.Properties['Debugger']) {
+            $bad = $true
+            $details.Add(("IFEO chiếm quyền thực thi '{0}' bằng Debugger = '{1}' - tiến trình cấp phép bị đánh tráo." -f $exe, $props.Debugger))
+        }
+    }
+    if (-not $bad) { $details.Add('Không thấy khóa registry nào chặn kiểm tra bản quyền (NoGenTicket, dịch vụ sppsvc/ClipSVC, IFEO đều bình thường).') }
+    return New-LicResult -Bad $bad -Details $details
+}
+
+function Test-LicUnsafeServers {
+    # 8. Kết nối tới máy chủ không an toàn: hosts chặn/chuyển hướng máy chủ kích hoạt
+    #    Microsoft + kết nối TCP đang mở tới cổng KMS 1688
+    $details = [System.Collections.Generic.List[string]]::new()
+    $bad = $false
+    $hostsPath = Join-Path $env:WINDIR 'System32\drivers\etc\hosts'
+    $msPattern = '(?i)(activation|validation|licensing|displaycatalog|purchase|sls)[a-z0-9.-]*\.(sls\.|mp\.)?microsoft\.com|go\.microsoft\.com'
+    if (Test-Path -LiteralPath $hostsPath) {
+        foreach ($line in (Get-Content -LiteralPath $hostsPath -ErrorAction SilentlyContinue)) {
+            $trimmed = $line.Trim()
+            if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
+            if ($trimmed -match $msPattern) {
+                $bad = $true
+                $details.Add(('Tệp hosts chặn/chuyển hướng máy chủ kích hoạt Microsoft: ' + (Limit-LicText $trimmed)))
+            }
+        }
+    }
+    $conns = @()
+    try { $conns = @(Get-NetTCPConnection -RemotePort 1688 -ErrorAction SilentlyContinue) } catch {}
+    foreach ($c in $conns) {
+        $remote = [string]$c.RemoteAddress
+        $bad = $true
+        if ($remote -match '^(127\.|::1$)') {
+            $details.Add(("Kết nối cổng KMS 1688 tới chính máy này ({0}) - trình giả lập KMS đang chạy." -f $remote))
+        } else {
+            $details.Add(("Đang có kết nối tới máy chủ KMS bên ngoài {0}:1688 (trạng thái {1})." -f $remote, $c.State))
+        }
+    }
+    if (-not $bad) { $details.Add('Tệp hosts sạch và không có kết nối nào tới cổng KMS 1688.') }
+    return New-LicResult -Bad $bad -Details $details
+}
+
+function Initialize-LicNative {
+    # Nạp P/Invoke SLWGA một lần cho phiên. Slwga.dll là API chính chủ Microsoft
+    # (Software Licensing / Windows Genuine Advantage) kiểm tra cờ Tampered của
+    # giấy phép - đúng cơ chế Windows tự dùng để tự xác minh chính hãng.
+    if ('WinTrash.LicNative' -as [type]) { return $true }
+    $src = @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace WinTrash {
+    public static class LicNative {
+        [DllImport("Slwga.dll", PreserveSig = true)]
+        public static extern uint SLIsGenuineLocal(ref Guid appId, out int genuineState, IntPtr options);
+    }
+}
+'@
+    try { Add-Type -TypeDefinition $src -ErrorAction Stop; return $true } catch { return $false }
+}
+
+function Get-LicGenuineState {
+    # Trả về SL_GENUINE_STATE: 0 = chính hãng, 1 = giấy phép không hợp lệ,
+    # 2 = giấy phép bị can thiệp (Tampered), 3 = chưa xác minh được (offline);
+    # -1 = không gọi được API (SKU thiếu Slwga.dll...)
+    if (-not (Initialize-LicNative)) { return -1 }
+    try {
+        $windowsAppId = [Guid]'55c92734-d682-4d71-983e-d6ec3f16059f'
+        $state = 0
+        $hr = [WinTrash.LicNative]::SLIsGenuineLocal([ref]$windowsAppId, [ref]$state, [IntPtr]::Zero)
+        if ($hr -ne 0) { return -1 }
+        return $state
+    } catch { return -1 }
+}
+
+function Get-LicVerdict {
+    # Kết luận tổng từ 3 nguồn: SLWGA + LicenseStatus WMI + số hạng mục phát hiện.
+    # 'genuine' = chính hãng sạch sẽ; 'traces' = chính hãng nhưng còn dấu vết tool
+    # lậu; 'not-genuine' = chưa có bản quyền hợp lệ. SLWGA offline/API lỗi thì
+    # rơi về trạng thái kích hoạt; LicenseStatus -1 = không đọc được WMI.
+    param([int]$GenuineState, [int]$LicenseStatus, [int]$BadCount)
+    $notGenuine = ($GenuineState -eq 1 -or $GenuineState -eq 2)
+    $activated = ($LicenseStatus -eq 1) -or ($GenuineState -eq 0 -and $LicenseStatus -lt 0)
+    if ($notGenuine -or -not $activated) { return 'not-genuine' }
+    if ($BadCount -gt 0) { return 'traces' }
+    return 'genuine'
+}
+
+function Invoke-FlowLicenseCheck {
+    param([hashtable]$L)
+    Write-Host ''
+    Write-Host $L.LicTitle -ForegroundColor Cyan
+    if (-not (Test-IsAdmin)) { Write-Host ('  ' + $L.LicNeedAdmin) -ForegroundColor DarkGray }
+    Write-Host ''
+
+    $spinnerHandle = Start-ScanSpinner -Text $L.LicRunning
+    $checks = $null
+    try {
+        $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
+        $partOfDomain = [bool]($cs -and $cs.PartOfDomain)
+        # Chỉ truy vấn WMI cấp phép MỘT lần (chậm) rồi chia cho các hạng mục 3 + 4
+        $slProducts = @(Get-CimInstance -ClassName SoftwareLicensingProduct `
+            -Filter "ApplicationID='55c92734-d682-4d71-983e-d6ec3f16059f' AND PartialProductKey IS NOT NULL" `
+            -ErrorAction SilentlyContinue)
+        $slService = Get-CimInstance -ClassName SoftwareLicensingService -ErrorAction SilentlyContinue
+        $genState = Get-LicGenuineState
+
+        $checks = @(
+            [PSCustomObject]@{ Name = $L.Lic1; Kind = 'detect'; Result = (Test-LicKmsCrack -PartOfDomain $partOfDomain) }
+            [PSCustomObject]@{ Name = $L.Lic2; Kind = 'clean';  Result = (Test-LicMasHistory) }
+            [PSCustomObject]@{ Name = $L.Lic3; Kind = 'valid';  Result = (Test-LicKms38 -Products $slProducts) }
+            [PSCustomObject]@{ Name = $L.Lic4; Kind = 'valid';  Result = (Test-LicChannelBios -Products $slProducts -Service $slService -PartOfDomain $partOfDomain) }
+            [PSCustomObject]@{ Name = $L.Lic5; Kind = 'detect'; Result = (Test-LicPirateFolders) }
+            [PSCustomObject]@{ Name = $L.Lic6; Kind = 'detect'; Result = (Test-LicRogueTasks) }
+            [PSCustomObject]@{ Name = $L.Lic7; Kind = 'detect'; Result = (Test-LicRegistryTamper) }
+            [PSCustomObject]@{ Name = $L.Lic8; Kind = 'detect'; Result = (Test-LicUnsafeServers) }
+        )
+    } finally { Stop-ScanSpinner -Handle $spinnerHandle }
+
+    # ── Phần 1: tình trạng bản quyền (xác minh chính hãng) ──
+    $osProduct = $slProducts | Where-Object { $_.LicenseStatus -eq 1 -and [string]$_.Name -match '^Windows' } | Select-Object -First 1
+    if ($null -eq $osProduct) {
+        $osProduct = $slProducts | Where-Object { [string]$_.Name -match '^Windows' } | Select-Object -First 1
+    }
+    $licStatus = if ($osProduct) { [int]$osProduct.LicenseStatus } else { -1 }
+    $statusText = if ($licStatus -ge 0 -and $licStatus -le 6) { $L["LicSt$licStatus"] } else { $L.LicUnknown }
+    $genLabel = switch ($genState) {
+        0 { $L.LicGenGenuine } 1 { $L.LicGenInvalid } 2 { $L.LicGenTampered }
+        3 { $L.LicGenOffline } default { $L.LicGenApiFail }
+    }
+    $genColor = switch ($genState) { 0 { 'Green' } 1 { 'Red' } 2 { 'Red' } default { 'DarkYellow' } }
+    $edition = if ($osProduct) { [string]$osProduct.Name } else { $L.LicUnknown }
+    $channelText = $L.LicUnknown
+    if ($osProduct) {
+        $ch = ''
+        try { $ch = [string]$osProduct.ProductKeyChannel } catch {}
+        if (-not $ch -and [string]$osProduct.Description -match '(\S+)\s+channel') { $ch = $Matches[1] }
+        if ($ch) { $channelText = ('{0} (key ...{1})' -f $ch, [string]$osProduct.PartialProductKey) }
+    }
+    $biosDesc = ''
+    $hasBiosKey = $false
+    if ($slService) {
+        try { $hasBiosKey = -not [string]::IsNullOrWhiteSpace([string]$slService.OA3xOriginalProductKey) } catch {}
+        try { $biosDesc = [string]$slService.OA3xOriginalProductKeyDescription } catch {}
+    }
+    $biosText = if ($hasBiosKey) { $L.LicOemYes -f $(if ($biosDesc) { $biosDesc } else { 'OA3' }) } else { $L.LicOemNo }
+
+    Write-Host ('  ── ' + $L.LicGenTitle + ' ──') -ForegroundColor Cyan
+    Write-Host ("  {0,-28}: {1}" -f $L.LicEdition, $edition)
+    Write-Host ("  {0,-28}: " -f $L.LicActStatus) -NoNewline
+    Write-Host $statusText -ForegroundColor $(if ($licStatus -eq 1) { 'Green' } elseif ($licStatus -lt 0) { 'DarkGray' } else { 'Red' })
+    Write-Host ("  {0,-28}: " -f $L.LicGenVerify) -NoNewline
+    Write-Host $genLabel -ForegroundColor $genColor
+    Write-Host ("  {0,-28}: {1}" -f $L.LicChannel, $channelText)
+    Write-Host ("  {0,-28}: {1}" -f $L.LicBiosKey, $biosText)
+    Write-Host ''
+
+    # ── Phần 2: 8 hạng mục phát hiện can thiệp ──
+    $badCount = 0
+    $idx = 0
+    foreach ($c in $checks) {
+        $idx++
+        $isBad = [bool]$c.Result.Bad
+        if ($isBad) { $badCount++ }
+        $status = switch ($c.Kind) {
+            'valid' { if ($isBad) { $L.LicInvalid } else { $L.LicValid } }
+            'clean' { if ($isBad) { $L.LicNotClean } else { $L.LicClean } }
+            default { if ($isBad) { $L.LicDetected } else { $L.LicNotDetected } }
+        }
+        Write-Host ("  [{0}/8] " -f $idx) -NoNewline -ForegroundColor DarkGray
+        Write-Host ("{0,-52} " -f $c.Name) -NoNewline
+        Write-Host $status -ForegroundColor $(if ($isBad) { 'Red' } else { 'Green' })
+        foreach ($d in $c.Result.Details) {
+            Write-Host ('        - ' + $d) -ForegroundColor $(if ($isBad) { 'Yellow' } else { 'DarkGray' })
+        }
+    }
+    Write-Host ''
+    if ($badCount -eq 0) { Write-C ($L.LicSummaryClean -f $checks.Count, $checks.Count) -Color Green }
+    else { Write-C ($L.LicSummaryBad -f $badCount, $checks.Count) -Color Red }
+
+    # ── Kết luận tổng + khuyến nghị mua bản quyền chính hãng khi cần ──
+    $verdict = Get-LicVerdict -GenuineState $genState -LicenseStatus $licStatus -BadCount $badCount
+    Write-Host ''
+    switch ($verdict) {
+        'genuine' { Write-C ('√ ' + $L.LicVerdictGenuine) -Color Green }
+        'traces'  { Write-C ('! ' + $L.LicVerdictTraces) -Color Yellow }
+        default   { Write-C ('× ' + $L.LicVerdictNotGenuine) -Color Red }
+    }
+    if ($verdict -ne 'genuine') {
+        Write-Host ''
+        Write-Host ('  • ' + $L.LicBuy1) -ForegroundColor Cyan
+        Write-Host ('  • ' + $L.LicBuy2) -ForegroundColor Cyan
+        Write-Host ('  • ' + $L.LicBuy3) -ForegroundColor Cyan
+        Write-Host ('  • ' + $L.LicLawVN) -ForegroundColor DarkGray
+    }
+    Write-Host ''
+}
+
 # ════════════════════════ SELF-UPDATE ════════════════════════
 
 function Get-RemoteVersion {
@@ -2646,6 +3565,8 @@ function Invoke-OneAction {
         'temp'             { Invoke-FlowTemp -L $L }
         'restore'          { Invoke-FlowRestore -L $L }
         'schedule'         { Invoke-FlowSchedule -L $L }
+        'ram'              { Invoke-FlowRamClean -L $L }
+        'license'          { Invoke-FlowLicenseCheck -L $L }
         'devscan'          { Invoke-FlowClean -L $L -DevOnly }
         'install-devradar' { Invoke-FlowInstall -L $L -Package 'devradar' }
         'install-claudefy' { Invoke-FlowInstall -L $L -Package 'claudefy' }
@@ -2671,7 +3592,7 @@ if ($Action) {
 if (-not (Test-Interactive)) {
     $script:Language = if ($Language) { $Language } else { 'vi' }
     Show-Banner -Tagline $tagline
-    Write-Host 'Console không tương tác. Dùng: .\WinTrash.ps1 -Language vi -Role User -Action scan|clean|temp|restore|downloads|schedule'
+    Write-Host 'Console không tương tác. Dùng: .\WinTrash.ps1 -Language vi -Role User -Action scan|clean|temp|restore|downloads|schedule|ram|license'
     return
 }
 
@@ -2734,6 +3655,8 @@ while ($true) {
     $menuItems.Add(@{ Key = 'temp';      Label = $L.MenuTemp })
     $menuItems.Add(@{ Key = 'restore';   Label = $L.MenuRestore })
     $menuItems.Add(@{ Key = 'schedule';  Label = $L.MenuSched })
+    $menuItems.Add(@{ Key = 'ram';       Label = $L.MenuRam })
+    $menuItems.Add(@{ Key = 'license';   Label = $L.MenuLicense })
     if ($Role -eq 'Developer') {
         $menuItems.Add(@{ Key = 'devscan';          Label = $L.MenuDevScan })
         $menuItems.Add(@{ Key = 'install-devradar'; Label = $L.MenuRadar })
